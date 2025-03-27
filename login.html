@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OMI - Your Daily Life Manga Creator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="omi-interface">
+        <!-- High-tech UI elements -->
+        <div class="tech-grid"></div>
+        <div class="scanline-overlay"></div>
+        
+        <!-- Main device visualization -->
+        <div class="omi-device">
+            <div class="device-screen">
+                <div class="screen-content" id="screen-content">
+                    <!-- Content will be dynamically loaded here -->
+                </div>
+                <div class="device-border"></div>
+                <div class="device-sensors">
+                    <div class="sensor"></div>
+                    <div class="sensor"></div>
+                    <div class="sensor"></div>
+                </div>
+            </div>
+            <div class="device-body">
+                <div class="power-button"></div>
+                <div class="recording-indicator"></div>
+            </div>
+        </div>
+        
+        <!-- Sound effects -->
+        <audio id="pageTurnSound" src="https://assets.mixkit.co/sfx/preview/mixkit-page-turn-single-1106.mp3" preload="auto"></audio>
+        <audio id="deviceSound" src="https://assets.mixkit.co/sfx/preview/mixkit-sci-fi-positive-interface-beep-158.mp3" preload="auto"></audio>
+        <audio id="cameraSound" src="https://assets.mixkit.co/sfx/preview/mixkit-camera-shutter-click-1133.mp3" preload="auto"></audio>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.11.4/gsap.min.js"></script>
+    <script src="login.js"></script>
+</body>
+</html>

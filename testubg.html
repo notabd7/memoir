@@ -1,0 +1,874 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Life→Manga | Advanced Creator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;500;800&family=Bangers&family=Playfair+Display:wght@700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            /* Modern color scheme with high contrast */
+            --primary: #121212;
+            --secondary: #F8F8F8;
+            --accent1: #FF3D00;
+            --accent2: #5E17EB;
+            --accent3: #00C2FF;
+            --panel-bg: rgba(0, 0, 0, 0.85);
+            --panel-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--primary);
+            color: var(--secondary);
+            overflow: hidden;
+            height: 100vh;
+            width: 100vw;
+            position: relative;
+        }
+
+        .canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        #particleCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 1;
+        }
+
+        /* Main content container */
+        .container {
+            position: relative;
+            z-index: 2;
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+
+        /* 3D Scene Container */
+        .scene {
+            perspective: 2000px;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+        }
+
+        /* Manga Portal */
+        .manga-portal {
+            position: relative;
+            width: 600px;
+            height: 400px;
+            transform-style: preserve-3d;
+            transform: rotateX(20deg) scale(0);
+            animation: portalEntry 1.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        @keyframes portalEntry {
+            0% { transform: rotateX(20deg) scale(0); }
+            100% { transform: rotateX(20deg) scale(1); }
+        }
+
+        .portal-frame {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 15px solid var(--accent2);
+            border-radius: 20px;
+            box-shadow: 
+                0 0 30px rgba(94, 23, 235, 0.6),
+                0 0 60px rgba(94, 23, 235, 0.3),
+                inset 0 0 20px rgba(94, 23, 235, 0.8);
+            transform-style: preserve-3d;
+            transform: translateZ(10px);
+            overflow: hidden;
+        }
+
+        .portal-content {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(135deg, rgba(0,0,0,0.9) 0%, rgba(20,20,20,0.95) 100%);
+            overflow: hidden;
+        }
+
+        /* Portal Animation Elements */
+        .portal-ripple {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--accent2);
+            box-shadow: 0 0 20px var(--accent2);
+            opacity: 0;
+        }
+
+        .manga-pages {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+
+        .manga-page {
+            position: absolute;
+            background-color: white;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+            transform-origin: center;
+            opacity: 0;
+            border-radius: 5px;
+        }
+
+        /* Manga elements */
+        .manga-panel {
+            position: absolute;
+            background-color: white;
+            border: 3px solid black;
+            transform-origin: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            opacity: 0;
+        }
+
+        .panel-content {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Bangers', cursive;
+            color: black;
+            font-size: 24px;
+            text-align: center;
+            padding: 10px;
+        }
+
+        .action-lines {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at center, transparent 30%, black 100%);
+            opacity: 0.2;
+        }
+
+        /* Text elements */
+        .portal-title {
+            font-family: 'Playfair Display', serif;
+            font-weight: 900;
+            font-size: 52px;
+            margin-bottom: 20px;
+            background: linear-gradient(135deg, var(--accent1) 0%, var(--accent3) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-shadow: 0 2px 10px rgba(255, 255, 255, 0.1);
+            opacity: 0;
+            transform: translateY(30px);
+            text-align: center;
+        }
+
+        .portal-subtitle {
+            font-size: 18px;
+            font-weight: 300;
+            max-width: 80%;
+            text-align: center;
+            line-height: 1.6;
+            margin-bottom: 40px;
+            opacity: 0;
+            transform: translateY(30px);
+        }
+
+        /* Button */
+        .enter-button {
+            background: linear-gradient(135deg, var(--accent1) 0%, var(--accent2) 100%);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            font-size: 18px;
+            font-weight: 600;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 5px 20px rgba(255, 61, 0, 0.4);
+            transition: all 0.3s ease;
+            opacity: 0;
+            transform: translateY(30px);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .enter-button::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transition: all 0.5s ease;
+        }
+
+        .enter-button:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(255, 61, 0, 0.6);
+        }
+
+        .enter-button:hover::before {
+            left: 100%;
+        }
+
+        /* Floating icons */
+        .floating-icons {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .manga-icon {
+            position: absolute;
+            opacity: 0;
+            transform: scale(0);
+        }
+
+        /* HUD elements */
+        .hud {
+            position: fixed;
+            z-index: 10;
+            pointer-events: none;
+        }
+
+        .top-right {
+            top: 30px;
+            right: 30px;
+        }
+
+        .bottom-left {
+            bottom: 30px;
+            left: 30px;
+        }
+
+        .hud-element {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            transform: translateX(30px);
+        }
+
+        .hud-title {
+            font-size: 14px;
+            color: var(--accent3);
+            margin-bottom: 8px;
+        }
+
+        .hud-content {
+            display: flex;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .progress-bar {
+            width: 150px;
+            height: 4px;
+            background-color: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-right: 10px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background-color: var(--accent3);
+            width: 0%;
+            transition: width 0.5s ease;
+        }
+
+        /* Sound Visualization */
+        .sound-wave {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            z-index: 10;
+            opacity: 0;
+        }
+
+        .wave-bar {
+            width: 3px;
+            background-color: var(--accent3);
+            border-radius: 3px;
+            height: 5px;
+            transition: height 0.2s ease;
+        }
+
+        /* Loading indicator */
+        .loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--primary);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            transition: opacity 0.5s ease, visibility 0.5s ease;
+        }
+
+        .loading-text {
+            font-size: 24px;
+            font-weight: 500;
+            letter-spacing: 4px;
+            position: relative;
+        }
+
+        .loading-text::after {
+            content: '';
+            position: absolute;
+            bottom: -10px;
+            left: 0;
+            width: 100%;
+            height: 2px;
+            background-color: var(--accent1);
+            animation: loadingBar 2s infinite;
+        }
+
+        @keyframes loadingBar {
+            0% { width: 0; left: 0; }
+            50% { width: 100%; left: 0; }
+            100% { width: 0; left: 100%; }
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .manga-portal {
+                width: 90%;
+                height: 60vh;
+            }
+            
+            .portal-title {
+                font-size: 36px;
+            }
+            
+            .portal-subtitle {
+                font-size: 16px;
+            }
+            
+            .hud {
+                transform: scale(0.8);
+                transform-origin: top right;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading screen -->
+    <div class="loading" id="loading">
+        <div class="loading-text">INITIALIZING</div>
+    </div>
+    
+    <!-- Particle canvas -->
+    <div class="canvas-container">
+        <canvas id="particleCanvas"></canvas>
+    </div>
+    
+    <!-- Main container -->
+    <div class="container">
+        <!-- 3D Scene -->
+        <div class="scene">
+            <div class="manga-portal" id="mangaPortal">
+                <div class="portal-frame">
+                    <div class="portal-content">
+                        <h1 class="portal-title">YOUR LIFE AS MANGA</h1>
+                        <p class="portal-subtitle">Transform your everyday moments into stunning manga narratives using next-generation AI technology</p>
+                        <button class="enter-button" id="enterButton">BEGIN YOUR STORY</button>
+                    </div>
+                </div>
+                
+                <!-- Portal effects -->
+                <div class="portal-ripple" id="portalRipple"></div>
+                
+                <!-- Manga pages and elements -->
+                <div class="manga-pages" id="mangaPages"></div>
+            </div>
+            
+            <!-- Floating manga icons -->
+            <div class="floating-icons" id="floatingIcons"></div>
+        </div>
+    </div>
+    
+    <!-- HUD elements -->
+    <div class="hud top-right">
+        <div class="hud-element">
+            <div class="hud-title">AI PROCESSING</div>
+            <div class="hud-content">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="aiProgress"></div>
+                </div>
+                <span id="progressText">0%</span>
+            </div>
+        </div>
+        <div class="hud-element">
+            <div class="hud-title">STYLE ENGINE</div>
+            <div class="hud-content">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="styleProgress"></div>
+                </div>
+                <span id="styleText">0%</span>
+            </div>
+        </div>
+    </div>
+    
+    <div class="hud bottom-left">
+        <div class="hud-element">
+            <div class="hud-title">SYSTEM STATUS</div>
+            <div class="hud-content" id="systemStatus">Initializing story engine...</div>
+        </div>
+    </div>
+    
+    <!-- Sound wave visualization -->
+    <div class="sound-wave" id="soundWave">
+        <!-- Will be dynamically populated -->
+    </div>
+    
+    <!-- Sound effects -->
+    <audio id="portalSound" src="https://assets.mixkit.co/sfx/preview/mixkit-magical-atmosphere-whoosh-2599.mp3" preload="auto"></audio>
+    <audio id="welcomeSound" src="https://assets.mixkit.co/sfx/preview/mixkit-futuristic-technological-interface-tap-2568.mp3" preload="auto"></audio>
+    <audio id="pageSound" src="https://assets.mixkit.co/sfx/preview/mixkit-paper-slide-1530.mp3" preload="auto"></audio>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // DOM Elements
+            const loading = document.getElementById('loading');
+            const mangaPortal = document.getElementById('mangaPortal');
+            const portalRipple = document.getElementById('portalRipple');
+            const mangaPages = document.getElementById('mangaPages');
+            const floatingIcons = document.getElementById('floatingIcons');
+            const portalTitle = document.querySelector('.portal-title');
+            const portalSubtitle = document.querySelector('.portal-subtitle');
+            const enterButton = document.getElementById('enterButton');
+            const aiProgress = document.getElementById('aiProgress');
+            const progressText = document.getElementById('progressText');
+            const styleProgress = document.getElementById('styleProgress');
+            const styleText = document.getElementById('styleText');
+            const systemStatus = document.getElementById('systemStatus');
+            const soundWave = document.getElementById('soundWave');
+            
+            // Sound elements
+            const portalSound = document.getElementById('portalSound');
+            const welcomeSound = document.getElementById('welcomeSound');
+            const pageSound = document.getElementById('pageSound');
+            
+            // Canvas setup
+            const canvas = document.getElementById('particleCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Resize canvas
+            function resizeCanvas() {
+                canvas.width = window.innerWidth;
+                canvas.height = window.innerHeight;
+            }
+            
+            // Initialize canvas
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            
+            // Particles
+            const particles = [];
+            const particleCount = 80;
+            
+            class Particle {
+                constructor() {
+                    this.x = Math.random() * canvas.width;
+                    this.y = Math.random() * canvas.height;
+                    this.size = Math.random() * 2 + 0.5;
+                    this.speedX = Math.random() * 0.5 - 0.25;
+                    this.speedY = Math.random() * 0.5 - 0.25;
+                    this.color = '#ffffff';
+                    this.opacity = Math.random() * 0.5 + 0.1;
+                }
+                
+                update() {
+                    this.x += this.speedX;
+                    this.y += this.speedY;
+                    
+                    if (this.x < 0) this.x = canvas.width;
+                    if (this.x > canvas.width) this.x = 0;
+                    if (this.y < 0) this.y = canvas.height;
+                    if (this.y > canvas.height) this.y = 0;
+                }
+                
+                draw() {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fillStyle = this.color;
+                    ctx.globalAlpha = this.opacity;
+                    ctx.fill();
+                    ctx.globalAlpha = 1;
+                }
+            }
+            
+            // Create particles
+            function initParticles() {
+                for (let i = 0; i < particleCount; i++) {
+                    particles.push(new Particle());
+                }
+            }
+            
+            // Animate particles
+            function animateParticles() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                for (let i = 0; i < particles.length; i++) {
+                    particles[i].update();
+                    particles[i].draw();
+                }
+                
+                requestAnimationFrame(animateParticles);
+            }
+            
+            // Init particles
+            initParticles();
+            animateParticles();
+            
+            // Create sound wave visualization
+            function createSoundWave() {
+                for (let i = 0; i < 20; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'wave-bar';
+                    bar.style.height = `${Math.random() * 15 + 5}px`;
+                    soundWave.appendChild(bar);
+                }
+            }
+            
+            // Animate sound wave
+            function animateSoundWave() {
+                const bars = document.querySelectorAll('.wave-bar');
+                bars.forEach(bar => {
+                    const height = Math.random() * 20 + 5;
+                    bar.style.height = `${height}px`;
+                });
+            }
+            
+            // Create and animate manga pages
+            function createMangaPages() {
+                for (let i = 0; i < 5; i++) {
+                    const page = document.createElement('div');
+                    page.className = 'manga-page';
+                    
+                    const size = Math.random() * 100 + 100;
+                    const top = Math.random() * 70 + 15;
+                    const left = Math.random() * 70 + 15;
+                    
+                    page.style.width = `${size}px`;
+                    page.style.height = `${size * 1.5}px`;
+                    page.style.top = `${top}%`;
+                    page.style.left = `${left}%`;
+                    page.style.transform = `rotate(${Math.random() * 40 - 20}deg)`;
+                    
+                    mangaPages.appendChild(page);
+                    
+                    setTimeout(() => {
+                        page.style.opacity = '1';
+                        page.style.transition = 'opacity 0.5s ease, transform 0.8s ease';
+                        page.style.transform = `rotate(${Math.random() * 20 - 10}deg)`;
+                    }, 500 + i * 300);
+                }
+            }
+            
+            // Create manga panels
+            function createMangaPanels() {
+                const panelCount = 3;
+                const panelTexts = [
+                    "Your story begins here",
+                    "Every moment captured",
+                    "Turn life into art"
+                ];
+                
+                for (let i = 0; i < panelCount; i++) {
+                    const panel = document.createElement('div');
+                    panel.className = 'manga-panel';
+                    
+                    const width = Math.random() * 100 + 120;
+                    const height = Math.random() * 70 + 70;
+                    
+                    panel.style.width = `${width}px`;
+                    panel.style.height = `${height}px`;
+                    
+                    // Position panels in an interesting layout
+                    if (i === 0) {
+                        panel.style.top = '15%';
+                        panel.style.left = '10%';
+                    } else if (i === 1) {
+                        panel.style.top = '25%';
+                        panel.style.right = '10%';
+                    } else {
+                        panel.style.bottom = '15%';
+                        panel.style.left = '30%';
+                    }
+                    
+                    // Create panel content
+                    const content = document.createElement('div');
+                    content.className = 'panel-content';
+                    content.innerHTML = panelTexts[i];
+                    
+                    // Add action lines
+                    const actionLines = document.createElement('div');
+                    actionLines.className = 'action-lines';
+                    
+                    panel.appendChild(content);
+                    panel.appendChild(actionLines);
+                    mangaPages.appendChild(panel);
+                    
+                    setTimeout(() => {
+                        pageSound.currentTime = 0;
+                        pageSound.play();
+                        panel.style.opacity = '1';
+                        panel.style.transition = 'opacity 0.5s ease, transform 0.8s ease';
+                        panel.style.transform = 'scale(1.05)';
+                        
+                        setTimeout(() => {
+                            panel.style.transform = 'scale(1)';
+                        }, 300);
+                    }, 1500 + i * 500);
+                }
+            }
+            
+            // Create floating manga icons
+            function createFloatingIcons() {
+                const iconTexts = ['💥', '✨', '⚡', '💫', '🌟', '💭', '❗', '❓'];
+                
+                for (let i = 0; i < 15; i++) {
+                    const icon = document.createElement('div');
+                    icon.className = 'manga-icon';
+                    icon.textContent = iconTexts[Math.floor(Math.random() * iconTexts.length)];
+                    icon.style.fontSize = `${Math.random() * 30 + 20}px`;
+                    icon.style.top = `${Math.random() * 80 + 10}%`;
+                    icon.style.left = `${Math.random() * 80 + 10}%`;
+                    
+                    floatingIcons.appendChild(icon);
+                    
+                    setTimeout(() => {
+                        icon.style.opacity = '1';
+                        icon.style.transition = 'opacity 0.5s ease, transform 1s ease';
+                        icon.style.transform = 'scale(1) translateY(0)';
+                        
+                        // Animate floating
+                        const randomDelay = Math.random() * 5;
+                        icon.style.animation = `float ${3 + Math.random() * 3}s ease-in-out ${randomDelay}s infinite alternate`;
+                    }, 2000 + i * 200);
+                }
+            }
+            
+            // Simulate AI processing
+            function simulateProcessing() {
+                let progress = 0;
+                let styleProcessing = 0;
+                
+                const interval = setInterval(() => {
+                    if (progress < 100) {
+                        progress += Math.random() * 3;
+                        if (progress > 100) progress = 100;
+                        
+                        aiProgress.style.width = `${progress}%`;
+                        progressText.textContent = `${Math.floor(progress)}%`;
+                    }
+                    
+                    if (progress > 30 && styleProcessing < 100) {
+                        styleProcessing += Math.random() * 2;
+                        if (styleProcessing > 100) styleProcessing = 100;
+                        
+                        styleProgress.style.width = `${styleProcessing}%`;
+                        styleText.textContent = `${Math.floor(styleProcessing)}%`;
+                    }
+                    
+                    if (progress >= 100 && styleProcessing >= 100) {
+                        clearInterval(interval);
+                        systemStatus.textContent = 'All systems operational';
+                    } else {
+                        const statusMessages = [
+                            'Initializing story engine...',
+                            'Calibrating style parameters...',
+                            'Loading manga templates...',
+                            'Analyzing narrative structures...',
+                            'Preparing visual elements...',
+                            'Optimizing character rendering...'
+                        ];
+                        
+                        systemStatus.textContent = statusMessages[Math.floor(Math.random() * statusMessages.length)];
+                    }
+                }, 200);
+            }
+            
+            // Initialize animations
+            function initPortalAnimation() {
+                // Show portal ripple effect
+                portalRipple.style.transition = 'all 2s cubic-bezier(0.165, 0.84, 0.44, 1)';
+                portalRipple.style.width = '1000px';
+                portalRipple.style.height = '1000px';
+                portalRipple.style.opacity = '0.1';
+                
+                // Play portal sound
+                portalSound.play();
+                
+                // Animate portal content
+                setTimeout(() => {
+                    portalTitle.style.transition = 'all 0.8s cubic-bezier(0.165, 0.84, 0.44, 1)';
+                    portalTitle.style.opacity = '1';
+                    portalTitle.style.transform = 'translateY(0)';
+                    
+                    setTimeout(() => {
+                        portalSubtitle.style.transition = 'all 0.8s cubic-bezier(0.165, 0.84, 0.44, 1)';
+                        portalSubtitle.style.opacity = '1';
+                        portalSubtitle.style.transform = 'translateY(0)';
+                        
+                        setTimeout(() => {
+                            enterButton.style.transition = 'all 0.8s cubic-bezier(0.165, 0.84, 0.44, 1)';
+                            enterButton.style.opacity = '1';
+                            enterButton.style.transform = 'translateY(0)';
+                        }, 300);
+                    }, 300);
+                }, 1000);
+                
+                // Animate HUD elements
+                setTimeout(() => {
+                    const hudElements = document.querySelectorAll('.hud-element');
+                    hudElements.forEach((el, i) => {
+                        setTimeout(() => {
+                            el.style.transition = 'all 0.5s cubic-bezier(0.165, 0.84, 0.44, 1)';
+                            el.style.opacity = '1';
+                            el.style.transform = 'translateX(0)';
+                        }, i * 200);
+                    });
+                    
+                    // Show sound wave
+                    soundWave.style.transition = 'all 0.5s ease';
+                    soundWave.style.opacity = '1';
+                    
+                    // Start simulating AI processing
+                    simulateProcessing();
+                }, 1500);
+                
+                // Create manga elements
+                setTimeout(() => {
+                    createMangaPages();
+                    
+                    setTimeout(() => {
+                        createMangaPanels();
+                        createFloatingIcons();
+                        
+                        // Play welcome sound
+                        welcomeSound.play();
+                        
+                        // Speak welcome message
+                        speakWelcome();
+                    }, 500);
+                }, 2000);
+            }
+            
+            // Speak welcome message with Web Speech API
+            function speakWelcome() {
+                if ('speechSynthesis' in window) {
+                    const welcome = new SpeechSynthesisUtterance("Welcome to your personal manga");
+                    welcome.rate = 1;
+                    welcome.pitch = 1;
+                    welcome.volume = 1;
+                    
+                    speechSynthesis.speak(welcome);
+                    
+                    // Start animating sound wave during speech
+                    const waveInterval = setInterval(animateSoundWave, 100);
+                    
+                    welcome.onend = function() {
+                        clearInterval(waveInterval);
+                        
+                        // Reset wave bars
+                        const bars = document.querySelectorAll('.wave-bar');
+                        bars.forEach(bar => {
+                            bar.style.height = '5px';
+                        });
+                    };
+                }
+            }
+            
+            // Enter button click handler
+            enterButton.addEventListener('click', function() {
+                // Animation for button click
+                this.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    this.style.transform = 'scale(1)';
+                }, 100);
+                
+                // Play sound
+                welcomeSound.play();
+                
+                // Here you would add the code to transition to the next screen
+                alert('Starting your manga journey...');
+            });
+            
+            // Initialize everything
+            function init() {
+                // Create sound wave
+                createSoundWave();
+                
+                // Hide loading screen
+                setTimeout(() => {
+                    loading.style.opacity = '0';
+                    loading.style.visibility = 'hidden';
+                    
+                    // Start portal animation
+                    setTimeout(initPortalAnimation, 500);
+                }, 2000);
+            }
+            
+            // Start everything
+            init();
+        });
+    </script>
+</body>
+</html>

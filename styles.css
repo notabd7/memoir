@@ -1,0 +1,394 @@
+:root {
+    --primary-color: #0a1a3a;
+    --secondary-color: #e63946;
+    --accent-color: #4cc9f0;
+    --text-color: #f8f9fa;
+    --device-color: #1a1a1a;
+    --screen-glow: rgba(76, 201, 240, 0.1);
+    --grid-line: rgba(76, 201, 240, 0.05);
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Noto Sans JP', 'Roboto', sans-serif;
+    background-color: #050505;
+    color: var(--text-color);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: relative;
+}
+
+.omi-interface {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    perspective: 1000px;
+}
+
+/* Tech grid background */
+.tech-grid {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background-image: 
+        linear-gradient(var(--grid-line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 40px 40px;
+    z-index: 0;
+    animation: gridScroll 20s linear infinite;
+}
+
+@keyframes gridScroll {
+    from { background-position: 0 0; }
+    to { background-position: 40px 40px; }
+}
+
+/* Scanline overlay effect */
+.scanline-overlay {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: 
+        linear-gradient(
+            rgba(10, 26, 58, 0.2) 50%, 
+            transparent 50%
+        ),
+        linear-gradient(
+            90deg,
+            rgba(230, 57, 70, 0.1) 50%,
+            transparent 50%
+        );
+    background-size: 100% 4px, 4px 100%;
+    pointer-events: none;
+    z-index: 10;
+    animation: scanline 8s linear infinite;
+}
+
+@keyframes scanline {
+    from { background-position: 0 0; }
+    to { background-position: 0 100%; }
+}
+
+/* OMI Device Styling */
+.omi-device {
+    width: 360px;
+    height: 600px;
+    background-color: var(--device-color);
+    border-radius: 30px;
+    box-shadow: 
+        0 0 0 2px rgba(76, 201, 240, 0.2),
+        0 0 30px rgba(76, 201, 240, 0.3),
+        inset 0 0 20px rgba(0, 0, 0, 0.5);
+    position: relative;
+    transform-style: preserve-3d;
+    transform: rotateX(5deg);
+    z-index: 5;
+    overflow: hidden;
+}
+
+.device-screen {
+    width: 92%;
+    height: 92%;
+    margin: 4%;
+    background-color: #000;
+    border-radius: 20px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 
+        inset 0 0 30px rgba(0, 0, 0, 0.8),
+        0 0 20px var(--screen-glow);
+}
+
+.screen-content {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 30px;
+    box-sizing: border-box;
+    background: radial-gradient(circle at center, #0a1a3a 0%, #000 100%);
+}
+
+.device-border {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 20px;
+    border: 1px solid rgba(76, 201, 240, 0.3);
+    pointer-events: none;
+}
+
+.device-sensors {
+    position: absolute;
+    top: 15px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+}
+
+.sensor {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #333;
+    box-shadow: inset 0 0 5px #000;
+}
+
+.sensor:nth-child(1) {
+    background-color: #f00;
+    animation: pulse 2s infinite;
+}
+
+.sensor:nth-child(2) {
+    background-color: #0f0;
+    animation: pulse 2.5s infinite;
+}
+
+.sensor:nth-child(3) {
+    background-color: #00f;
+    animation: pulse 3s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+}
+
+.device-body {
+    position: absolute;
+    right: -5px;
+    top: 100px;
+    width: 10px;
+    height: 60px;
+    background-color: #111;
+    border-radius: 5px;
+    box-shadow: inset 0 0 10px #000;
+}
+
+.power-button {
+    position: absolute;
+    top: 15px;
+    width: 6px;
+    height: 30px;
+    background-color: #222;
+    border-radius: 3px;
+    box-shadow: inset 0 0 5px #000;
+}
+
+.recording-indicator {
+    position: absolute;
+    bottom: 15px;
+    width: 6px;
+    height: 6px;
+    background-color: var(--secondary-color);
+    border-radius: 50%;
+    opacity: 0;
+}
+
+/* Screen Content Styles */
+.welcome-screen {
+    text-align: center;
+}
+
+.welcome-screen h1 {
+    font-size: 1.8rem;
+    margin-bottom: 20px;
+    font-weight: 700;
+    color: var(--accent-color);
+    text-shadow: 0 0 10px rgba(76, 201, 240, 0.5);
+}
+
+.welcome-screen p {
+    font-size: 0.9rem;
+    margin-bottom: 30px;
+    line-height: 1.6;
+    color: rgba(248, 249, 250, 0.8);
+}
+
+.btn-signin {
+    background: linear-gradient(135deg, #4285F4 0%, #34A853 100%);
+    color: white;
+    border: none;
+    padding: 12px 25px;
+    border-radius: 25px;
+    font-size: 1rem;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    transition: all 0.3s ease;
+    margin-top: 20px;
+}
+
+.btn-signin:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+}
+
+.btn-signin i {
+    font-size: 1.2rem;
+}
+
+.character-setup {
+    text-align: center;
+}
+
+.character-setup h2 {
+    font-size: 1.5rem;
+    margin-bottom: 20px;
+    color: var(--text-color);
+}
+
+.character-setup p {
+    font-size: 0.9rem;
+    margin-bottom: 30px;
+    color: rgba(248, 249, 250, 0.8);
+}
+
+.character-preview {
+    width: 150px;
+    height: 150px;
+    border-radius: 10px;
+    background-color: rgba(10, 26, 58, 0.5);
+    margin: 0 auto 20px;
+    border: 2px dashed rgba(76, 201, 240, 0.3);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+    position: relative;
+}
+
+.character-preview img {
+    max-width: 100%;
+    max-height: 100%;
+    display: none;
+}
+
+.upload-options {
+    display: flex;
+    gap: 15px;
+    justify-content: center;
+}
+
+.upload-btn {
+    background: rgba(10, 26, 58, 0.5);
+    color: var(--accent-color);
+    border: 1px solid var(--accent-color);
+    padding: 10px 20px;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-size: 0.9rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.upload-btn:hover {
+    background: rgba(76, 201, 240, 0.2);
+}
+
+.upload-btn i {
+    font-size: 1rem;
+}
+
+/* Camera interface */
+.camera-interface {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background-color: #000;
+    display: none;
+    flex-direction: column;
+}
+
+.camera-view {
+    flex: 1;
+    background-color: #111;
+    position: relative;
+}
+
+.camera-controls {
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    gap: 20px;
+}
+
+.camera-btn {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background-color: rgba(255, 255, 255, 0.1);
+    border: 2px solid var(--accent-color);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.camera-btn:hover {
+    background-color: rgba(76, 201, 240, 0.2);
+}
+
+.camera-btn i {
+    color: var(--accent-color);
+    font-size: 1.2rem;
+}
+
+.capture-btn {
+    width: 60px;
+    height: 60px;
+    background-color: var(--secondary-color);
+    border: none;
+}
+
+.capture-btn i {
+    color: white;
+}
+
+/* Animation classes */
+.screen-transition {
+    animation: screenFade 0.5s ease-in-out;
+}
+
+@keyframes screenFade {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.recording-active {
+    animation: pulse 0.5s infinite alternate;
+}
+
+/* Responsive design */
+@media (max-width: 500px) {
+    .omi-device {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+    }
+}
