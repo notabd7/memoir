@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manga Creator - Login</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <!-- Load the Supabase JS library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Manga Creator</h1>
+        </header>
+        
+        <main>
+            <div class="login-box">
+                <h2>Sign in to create your manga</h2>
+                <button id="google-login" class="login-button">
+                    <img src="https://developers.google.com/identity/images/g-logo.png" alt="Google logo" width="20">
+                    Sign in with Google
+                </button>
+            </div>
+        </main>
+    </div>
+    
+    <script>
+        // Wait for DOM to be loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            // These values will be replaced by the dynamic route
+            const SUPABASE_URL = "{{ supabase_url|safe }}";
+            const SUPABASE_KEY = "{{ supabase_key|safe }}";
+            
+            console.log("Supabase URL:", SUPABASE_URL);
+            console.log("Supabase Key:", SUPABASE_KEY);
+            
+            if (!SUPABASE_URL || SUPABASE_URL === "{{ supabase_url }}") {
+                console.error("Supabase URL not provided correctly");
+                alert("Configuration error. Please contact the administrator.");
+                return;
+            }
+            
+            // Initialize the Supabase client
+            const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            
+            document.getElementById('google-login').addEventListener('click', async () => {
+                try {
+                    console.log("Login button clicked");
+                    // Sign in with Google
+                    const { data, error } = await supabaseClient.auth.signInWithOAuth({
+                        provider: 'google',
+                        options: {
+                            redirectTo: window.location.origin + '/callback'
+                        }
+                    });
+                    
+                    if (error) {
+                        console.error('Login error:', error);
+                        throw error;
+                    }
+                    
+                    console.log("Auth response:", data);
+                } catch (error) {
+                    console.error('Error logging in:', error);
+                    alert('Failed to log in. Please try again.');
+                }
+            });
+        });
+    </script>
+</body>
+</html>

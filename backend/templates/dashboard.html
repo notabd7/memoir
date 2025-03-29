@@ -1,0 +1,83 @@
+<!-- templates/dashboard.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manga Creator - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Add this to the header in dashboard.html -->
+<header>
+    <h1>Hello, {{ user.name }}!</h1>
+    <div class="header-actions">
+        <a href="{{ url_for('people') }}" class="action-button people-button">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                <circle cx="9" cy="7" r="4"></circle>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+            </svg>
+            Manage Characters
+        </a>
+        <img src="{{ user.picture }}" alt="Profile Picture" class="profile-picture">
+        <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+    </div>
+</header>
+        
+        <main>
+            <section class="manga-creation">
+                <h2>Create Your Manga</h2>
+                <p>Let's start by creating your character!</p>
+                
+                <div class="character-creation">
+                    <h3>Step 1: Upload your photo</h3>
+                    <p>We'll transform you into a manga character</p>
+                    
+                    <div class="image-capture-container">
+                        <div id="camera-preview" class="camera-preview">
+                            <video id="video" autoplay playsinline></video>
+                            <canvas id="canvas" style="display:none;"></canvas>
+                        </div>
+                        
+                        <div id="captured-image-container" class="captured-image-container" style="display:none;">
+                            <img id="captured-image" src="" alt="Captured image">
+                        </div>
+                        
+                        <div class="camera-controls">
+                            <button id="camera-button" class="action-button">Take Photo</button>
+                            <button id="retry-button" class="action-button" style="display:none;">Retry</button>
+                            <button id="submit-button" class="action-button" style="display:none;">Use This Photo</button>
+                        </div>
+                        
+                        <div class="upload-alternative">
+                            <p>Or upload an image:</p>
+                            <input type="file" id="file-upload" accept="image/*">
+                        </div>
+                    </div>
+                    
+                    <div id="processing-indicator" class="processing-indicator" style="display:none;">
+                        <p>Processing your image...</p>
+                        <div class="spinner"></div>
+                    </div>
+                    
+                    <div id="character-result" class="character-result" style="display:none;">
+                        <h3>Your Character Description:</h3>
+                        <p id="character-description"></p>
+                    </div>
+                                   
+                    <div id="character-image-result" class="character-image-result" style="display:none;">
+                        <h3>Your Manga Character:</h3>
+                        <div class="character-image-container">
+                            <img id="character-image" src="" alt="Generated character image">
+                        </div>
+                        <button id="download-image" class="action-button">Download Image</button>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+    
+    <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>

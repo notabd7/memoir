@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Authenticating...</title>
+    <!-- Load the Supabase JS library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+    <p>Authenticating...</p>
+    
+    <script>
+        // Store Supabase credentials in JavaScript variables
+        const supabaseUrl = "{{ supabase_url }}";
+        const supabaseKey = "{{ supabase_key }}";
+        
+        console.log("Callback - Supabase URL:", supabaseUrl);
+        console.log("Callback - Supabase Key:", supabaseKey);
+        
+        // Wait for DOM to be loaded
+        document.addEventListener('DOMContentLoaded', function() {
+            if (!supabaseUrl || supabaseUrl === "{{ supabase_url }}") {
+                console.error("Supabase URL not provided correctly");
+                alert("Configuration error. Please contact the administrator.");
+                return;
+            }
+            
+            // Initialize Supabase client
+            const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+            
+            async function handleCallback() {
+                try {
+                    console.log("Handling auth callback");
+                    // Get the session from the URL hash
+                    const { data, error } = await supabaseClient.auth.getSession();
+                    
+                    console.log("Session data:", data);
+                    console.log("Session error:", error);
+                    
+                    if (error) throw error;
+                    
+                    if (data && data.session) {
+                        console.log("User:", data.session.user);
+                        
+                        // Send the session data to our backend
+                        const response = await fetch('/auth', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify(data.session.user)
+                        });
+                        
+                        const result = await response.json();
+                        console.log("Auth result:", result);
+                        
+                        if (result.error) {
+                            throw new Error(result.error);
+                        }
+                        
+                        // Redirect to dashboard
+                        window.location.href = '/';
+                    } else {
+                        throw new Error('No session found');
+                    }
+                } catch (error) {
+                    console.error('Auth error:', error);
+                    alert('Authentication failed. Please try again: ' + error.message);
+                    window.location.href = '/login';
+                }
+            }
+            
+            // Call the function when the page loads
+            handleCallback();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+//TODO:
+//phase 1
+//set up  .env and open ai model
+// take permission from user to access camera and gallery to upload 
+//or add an image
+//next send that image to 4-o with the following prompt
+//"describe this person to an animator so that they are able to draw the person as a anime type animation!"
+//then we get the description from gpt4-o and then we send that description
+// to dalle 3 and get the image it generates
+// we display this image on our screen
+//this is the main character off our manga
+//phase 2
+//now next we prompt user to add their closest people
+//we will have a button to add a person this will bring up
+a prompt to add the `name` and the picture of the person theyre 
+closest too, we will store the picture asssocisted with the name 
+and make images for each.
+these are the characters for our manga 
+
+Phase 3
+getting the script 
+we will get a script from the user, that script will be sent to 
+gpt4o, we will structure that api call in away that we filter out
+pieces of the script that are best to formulate a short 2 page manga
+, gpt 4o will be prompted again then to describe each image fram in the manga
+seperately, we will get those images. concurrent requests will be sent
+for faster processing. wwe will get those images with numbered labels,
+so we know which image to fit where. 
+we will already have a skeleton for the manga where we will be populating those images
+and thats our manga
+
+for storage I want to use firebase to store users account (will be using google auth)
+and we will store the closest people they entered with their images
+and we will store the manga they generate every time given the script
+for now this is the current plan lets start in phases, testing and developing before we move on

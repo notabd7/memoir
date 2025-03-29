@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manga Creator - Characters</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Manga Characters</h1>
+            <div class="header-actions">
+                <a href="{{ url_for('index') }}" class="action-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
+                    Back to Dashboard
+                </a>
+                <img src="{{ user.picture }}" alt="Profile Picture" class="profile-picture">
+                <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+            </div>
+        </header>
+        
+        <main>
+            <section class="people-section">
+                <div class="section-header">
+                    <h2>Your Characters</h2>
+                    <button id="add-person-button" class="action-button">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                        Add Character
+                    </button>
+                </div>
+                
+                <div class="people-grid">
+                    {% if people %}
+                        {% for person in people %}
+                            <div class="person-card">
+                                <div class="character-image-container">
+                                    <img src="{{ person.imageUrl }}" alt="{{ person.name }}">
+                                </div>
+                                <h3>{{ person.name }}</h3>
+                                <button class="delete-button" data-id="{{ person.id }}">Delete</button>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">
+                            <p>You haven't added any characters yet.</p>
+                            <p>Click "Add Character" to create your first character!</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </section>
+        </main>
+        
+        <!-- Modal for adding a new character -->
+        <div id="add-person-modal" class="modal">
+            <div class="modal-content">
+                <span class="close-button">&times;</span>
+                <h2>Add New Character</h2>
+                
+                <form id="add-person-form">
+                    <div class="form-group">
+                        <label for="person-name">Character Name:</label>
+                        <input type="text" id="person-name" name="name" required>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="person-image">Upload Image:</label>
+                        <input type="file" id="person-image" name="image" accept="image/*" required>
+                    </div>
+                    
+                    <div class="preview-container" style="display:none;">
+                        <img id="image-preview" src="" alt="Preview">
+                    </div>
+                    
+                    <div class="form-buttons">
+                        <button type="button" class="cancel-button">Cancel</button>
+                        <button type="submit" class="submit-button">Create Character</button>
+                    </div>
+                </form>
+                
+                <div id="modal-processing" class="processing-indicator" style="display:none;">
+                    <p>Processing your image...</p>
+                    <div class="spinner"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="{{ url_for('static', filename='people.js') }}"></script>
+</body>
+</html>

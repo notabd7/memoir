@@ -1,0 +1,349 @@
+/* static/style.css */
+body {
+    font-family: 'Arial', sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f5f5f5;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 20px;
+}
+
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 40px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+}
+
+.profile-picture {
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    margin-right: 20px;
+}
+
+.login-button, .logout-button {
+    display: inline-block;
+    padding: 10px 20px;
+    background-color: #4285f4;
+    color: white;
+    text-decoration: none;
+    border-radius: 4px;
+    font-weight: bold;
+}
+
+.manga-creation {
+    background-color: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.file-upload {
+    margin-top: 20px;
+}
+
+.file-upload input {
+    margin-bottom: 10px;
+}
+
+.file-upload button {
+    padding: 10px 20px;
+    background-color: #4285f4;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+/* Add to static/style.css */
+.character-creation {
+    margin-top: 30px;
+}
+
+.camera-preview {
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto 20px;
+    overflow: hidden;
+    border-radius: 10px;
+    background-color: #333;
+}
+
+.camera-preview video {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.captured-image-container {
+    width: 100%;
+    max-width: 640px;
+    margin: 0 auto 20px;
+    overflow: hidden;
+    border-radius: 10px;
+}
+
+.captured-image-container img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+.camera-controls {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 20px;
+}
+
+.action-button {
+    padding: 10px 20px;
+    background-color: #4285f4;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+.action-button:hover {
+    background-color: #3367d6;
+}
+
+.upload-alternative {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.processing-indicator {
+    text-align: center;
+    margin: 30px 0;
+}
+
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(0, 0, 0, 0.1);
+    border-radius: 50%;
+    border-top-color: #4285f4;
+    animation: spin 1s ease-in-out infinite;
+    margin: 0 auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.character-result {
+    background-color: #f5f5f5;
+    padding: 20px;
+    border-radius: 10px;
+    margin-top: 30px;
+}
+
+.camera-error {
+    padding: 30px;
+    text-align: center;
+    color: #d32f2f;
+}
+
+/* Add to your style.css file */
+.character-image-result {
+    margin-top: 30px;
+    text-align: center;
+}
+
+.character-image-container {
+    max-width: 512px;
+    margin: 0 auto 20px;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+
+.character-image-container img {
+    width: 100%;
+    height: auto;
+    display: block;
+}
+
+#download-image {
+    margin-top: 15px;
+}
+
+/* Add to your existing style.css */
+
+/* Header actions styling */
+.header-actions {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.people-button svg {
+    margin-right: 5px;
+    vertical-align: middle;
+}
+
+/* People page styling */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+}
+
+.people-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 25px;
+    margin-top: 20px;
+}
+
+.person-card {
+    background-color: white;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    transition: transform 0.2s, box-shadow 0.2s;
+    text-align: center;
+}
+
+.person-card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+}
+
+.person-card .character-image-container {
+    height: 200px;
+    overflow: hidden;
+}
+
+.person-card img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.person-card h3 {
+    padding: 10px;
+    margin: 0;
+    font-size: 16px;
+}
+
+.delete-button {
+    background-color: #f44336;
+    color: white;
+    border: none;
+    padding: 5px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    margin-bottom: 10px;
+    font-size: 12px;
+}
+
+.delete-button:hover {
+    background-color: #d32f2f;
+}
+
+.empty-state {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 50px 20px;
+    background-color: #f9f9f9;
+    border-radius: 10px;
+    color: #757575;
+}
+
+/* Modal styling */
+.modal {
+    display: none;
+    position: fixed;
+    z-index: 1000;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-content {
+    background-color: white;
+    border-radius: 10px;
+    padding: 30px;
+    width: 90%;
+    max-width: 500px;
+    position: relative;
+}
+
+.close-button {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    font-size: 24px;
+    cursor: pointer;
+    color: #757575;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+}
+
+.form-group input[type="text"],
+.form-group input[type="file"] {
+    width: 100%;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.preview-container {
+    margin: 20px 0;
+    text-align: center;
+}
+
+.preview-container img {
+    max-width: 100%;
+    max-height: 300px;
+    border-radius: 5px;
+}
+
+.form-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.cancel-button {
+    padding: 10px 20px;
+    background-color: #f5f5f5;
+    color: #333;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.submit-button {
+    padding: 10px 20px;
+    background-color: #4285f4;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
