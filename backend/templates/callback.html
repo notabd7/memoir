@@ -9,23 +9,18 @@
     <p>Authenticating...</p>
     
     <script>
-        // Store Supabase credentials in JavaScript variables
-        const supabaseUrl = "{{ supabase_url }}";
-        const supabaseKey = "{{ supabase_key }}";
-        
-        console.log("Callback - Supabase URL:", supabaseUrl);
-        console.log("Callback - Supabase Key:", supabaseKey);
-        
         // Wait for DOM to be loaded
         document.addEventListener('DOMContentLoaded', function() {
-            if (!supabaseUrl || supabaseUrl === "{{ supabase_url }}") {
-                console.error("Supabase URL not provided correctly");
-                alert("Configuration error. Please contact the administrator.");
-                return;
-            }
+            // Hard-code the Supabase credentials directly
+            // Replace these with your actual values from the .env file
+            const SUPABASE_URL = "https://sjapmftvpnbczmyynbvr.supabase.co";
+            const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNqYXBtZnR2cG5iY3pteXluYnZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMxNDMxNTYsImV4cCI6MjA1ODcxOTE1Nn0.kEwnKxLjukkt9iknQdtuBUjUoGIxXP5tkqXdDqXpztU";
+            
+            console.log("Callback - Supabase URL:", SUPABASE_URL);
+            console.log("Callback - Supabase Key:", SUPABASE_KEY);
             
             // Initialize Supabase client
-            const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+            const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
             
             async function handleCallback() {
                 try {

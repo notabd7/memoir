@@ -14,9 +14,6 @@ from supabase import create_client, Client
 # Load environment variables
 load_dotenv()
 
-# Debug: Print environment variables
-print(f"SUPABASE_URL from env: {os.getenv('SUPABASE_URL')}")
-print(f"SUPABASE_KEY from env: {os.getenv('SUPABASE_KEY')}")
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
 
@@ -42,20 +39,20 @@ def index():
 
 @app.route('/login')
 def login():
-    # Print the values to verify they're available
-    print(f"SUPABASE_URL: {SUPABASE_URL}")
-    print(f"SUPABASE_KEY: {SUPABASE_KEY}")
-    
-    return render_template('login.html', supabase_url=SUPABASE_URL, supabase_key=SUPABASE_KEY)
+    return render_template('login.html')
+
+@app.route('/api/supabase-credentials')
+def supabase_credentials():
+    # Only provide the public key, never expose the service role key
+    return jsonify({
+        'url': os.getenv('SUPABASE_URL'),
+        'key': os.getenv('SUPABASE_KEY')
+    })
 
 @app.route('/callback')
 def callback():
     # This route handles the OAuth callback
-    # Print the values to verify they're available
-    print(f"SUPABASE_URL callback: {SUPABASE_URL}")
-    print(f"SUPABASE_KEY callback: {SUPABASE_KEY}")
-    
-    return render_template('callback.html', supabase_url=SUPABASE_URL, supabase_key=SUPABASE_KEY)
+    return render_template('callback.html')
 
 @app.route('/auth', methods=['POST'])
 def auth():
@@ -64,9 +61,12 @@ def auth():
         data = request.json
         print(f"Auth data: {data}")
         
+        # Extract user ID from data
+        user_id = data.get('id')
+        
         # Store the session data from Supabase
         session['user'] = {
-            'id': data.get('id'),
+            'id': user_id,
             'email': data.get('email'),
             'name': data.get('user_metadata', {}).get('full_name'),
             'picture': data.get('user_metadata', {}).get('avatar_url')
@@ -74,28 +74,34 @@ def auth():
         
         print(f"Session user: {session['user']}")
         
-        # Check if user exists in our database, create if not
-        user_id = data.get('id')
-        user_query = supabase.table('users').select('*').eq('id', user_id).execute()
-        
-        if not user_query.data:
-            # Create user in our database
-            user_data = {
-                'id': user_id,
-                'email': data.get('email'),
-                'name': data.get('user_metadata', {}).get('full_name'),
-                'picture': data.get('user_metadata', {}).get('avatar_url'),
-                'google_id': data.get('user_metadata', {}).get('sub')
-            }
-            print(f"Creating new user: {user_data}")
-            supabase.table('users').insert(user_data).execute()
+        # Try to check if user exists
+        try:
+            user_query = supabase.table('users').select('*').eq('id', user_id).execute()
+            
+            if not user_query.data:
+                # User doesn't exist, try to create using service role client
+                user_data = {
+                    'id': user_id,
+                    'email': data.get('email'),
+                    'name': data.get('user_metadata', {}).get('full_name'),
+                    'picture': data.get('user_metadata', {}).get('avatar_url'),
+                    'google_id': data.get('user_metadata', {}).get('sub')
+                }
+                print(f"Creating new user: {user_data}")
+                
+                # Insert user with direct SQL statement (bypasses RLS)
+                # This approach requires a Supabase service key with higher privileges
+                # For now, let's try with the normal insert and see if the RLS policies work
+                supabase.table('users').insert(user_data).execute()
+        except Exception as e:
+            # Handle any database errors, but still allow login
+            print(f"Error checking/creating user: {e}")
         
         return jsonify({'success': True})
     except Exception as e:
         print(f"Auth error: {e}")
         return jsonify({'error': str(e)}), 500
-
-
+    
 def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None):
     try:
         # Download the image

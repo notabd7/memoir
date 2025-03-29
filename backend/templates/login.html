@@ -25,45 +25,45 @@
     
     <script>
         // Wait for DOM to be loaded
-        document.addEventListener('DOMContentLoaded', function() {
-            // These values will be replaced by the dynamic route
-            const SUPABASE_URL = "{{ supabase_url|safe }}";
-            const SUPABASE_KEY = "{{ supabase_key|safe }}";
-            
-            console.log("Supabase URL:", SUPABASE_URL);
-            console.log("Supabase Key:", SUPABASE_KEY);
-            
-            if (!SUPABASE_URL || SUPABASE_URL === "{{ supabase_url }}") {
-                console.error("Supabase URL not provided correctly");
-                alert("Configuration error. Please contact the administrator.");
-                return;
-            }
-            
-            // Initialize the Supabase client
-            const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-            
-            document.getElementById('google-login').addEventListener('click', async () => {
-                try {
-                    console.log("Login button clicked");
-                    // Sign in with Google
-                    const { data, error } = await supabaseClient.auth.signInWithOAuth({
-                        provider: 'google',
-                        options: {
-                            redirectTo: window.location.origin + '/callback'
-                        }
-                    });
-                    
-                    if (error) {
-                        console.error('Login error:', error);
-                        throw error;
-                    }
-                    
-                    console.log("Auth response:", data);
-                } catch (error) {
-                    console.error('Error logging in:', error);
-                    alert('Failed to log in. Please try again.');
+        document.addEventListener('DOMContentLoaded', async function() {
+            try {
+                // Fetch Supabase credentials from the server
+                const response = await fetch('/api/supabase-credentials');
+                const credentials = await response.json();
+                
+                if (!credentials.url || !credentials.key) {
+                    throw new Error('Invalid Supabase credentials');
                 }
-            });
+                
+                // Initialize the Supabase client
+                const supabaseClient = supabase.createClient(credentials.url, credentials.key);
+                
+                document.getElementById('google-login').addEventListener('click', async () => {
+                    try {
+                        console.log("Login button clicked");
+                        // Sign in with Google
+                        const { data, error } = await supabaseClient.auth.signInWithOAuth({
+                            provider: 'google',
+                            options: {
+                                redirectTo: window.location.origin + '/callback'
+                            }
+                        });
+                        
+                        if (error) {
+                            console.error('Login error:', error);
+                            throw error;
+                        }
+                        
+                        console.log("Auth response:", data);
+                    } catch (error) {
+                        console.error('Error logging in:', error);
+                        alert('Failed to log in. Please try again.');
+                    }
+                });
+            } catch (error) {
+                console.error('Error initializing Supabase:', error);
+                alert('Failed to connect to authentication service. Please try again later.');
+            }
         });
     </script>
 </body>
