@@ -36,18 +36,17 @@ except Exception as e:
 def get_authenticated_supabase(user_id=None):
     """Get a Supabase client with the user's authentication token"""
     try:
-        # Create an authenticated client
+        # Create a fresh client
         supabase_client = create_client(SUPABASE_URL, SUPABASE_KEY)
         
-        # If we have a user ID, set the Authorization header
-        if user_id and 'user' in session:
-            # Get the JWT from Supabase
-            # This implementation depends on how you store the auth tokens
-            jwt_token = session.get('supabase_token')
+        # If we have a user ID and both tokens in session
+        if user_id and 'supabase_token' in session and 'supabase_refresh_token' in session:
+            access_token = session.get('supabase_token')
+            refresh_token = session.get('supabase_refresh_token')
             
-            if jwt_token:
-                # Set the auth header for all requests
-                supabase_client.auth.set_auth(jwt_token)
+            if access_token and refresh_token:
+                # Set the session with both tokens
+                supabase_client.auth.set_session(access_token, refresh_token)
                 return supabase_client
                 
         # Return the standard client if auth not possible
@@ -58,6 +57,65 @@ def get_authenticated_supabase(user_id=None):
         # Fall back to the default client
         return create_client(SUPABASE_URL, SUPABASE_KEY)
     
+
+@app.route('/diagnose_folder', methods=['GET'])
+def diagnose_folder():
+    try:
+
+        if 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+            
+        user_id = session['user']['id']
+        
+        # Create folder structure information
+        folder_info = {
+            'user_id': user_id,
+            'path_structure': {
+                'main_image_path': f"{user_id}/main.png",
+                'sample_character_path': f"{user_id}/people/sample-uuid.png"
+            },
+            'path_extraction': {
+                'foldername_first_segment': storage_foldername_simulation(f"{user_id}/main.png"),
+                'position_check': f"{user_id}/main.png".startswith(user_id)
+            },
+            'token_info': {
+                'has_token': 'supabase_token' in session,
+                'token_length': len(session.get('supabase_token', '')) if 'supabase_token' in session else 0
+            }
+        }
+        
+        # Check if we can create the folder directly with service role
+        try:
+            test_file = b"test content"
+            test_path = f"{user_id}/.folder_test"
+            
+            result = supabase_admin.storage.from_('character-images').upload(
+                path=test_path,
+                file=test_file,
+                file_options={"content-type": "text/plain", "upsert": True}
+            )
+            
+            folder_info['admin_test'] = {
+                'success': True,
+                'message': 'Folder test file created with admin client'
+            }
+        except Exception as e:
+            folder_info['admin_test'] = {
+                'success': False,
+                'error': str(e)
+            }
+        
+        return jsonify(folder_info)
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+        
+# Simple simulation of storage.foldername function for diagnostic purposes
+def storage_foldername_simulation(path):
+    parts = path.split('/')
+    if len(parts) <= 1:
+        return []
+    return parts[:-1]  # All parts except the last (filename)
 
 @app.route('/test_auth', methods=['GET'])
 def test_auth():
@@ -134,8 +192,7 @@ def test_bucket():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     
-@app.route('/admin_test_upload', methods=['GET'])
-def admin_test_upload():
+
     try:
         if 'user' not in session:
             return jsonify({'error': 'Not logged in'}), 401
@@ -176,19 +233,28 @@ def admin_test_upload():
             
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-@app.route('/debug_token', methods=['GET'])
-def debug_token():
+@app.route('/debug_tokens', methods=['GET'])
+def debug_tokens():
     if 'user' not in session:
         return jsonify({'error': 'Not logged in'}), 401
         
     token_info = {
-        'has_token': 'supabase_token' in session,
-        'token_preview': session.get('supabase_token', '')[:10] + '...' if session.get('supabase_token') else None,
+        'has_access_token': 'supabase_token' in session,
+        'has_refresh_token': 'supabase_refresh_token' in session,
+        'access_token_preview': session.get('supabase_token', '')[:10] + '...' if session.get('supabase_token') else None,
+        'refresh_token_preview': session.get('supabase_refresh_token', '')[:10] + '...' if session.get('supabase_refresh_token') else None,
         'user_id': session.get('user', {}).get('id')
     }
     
     return jsonify(token_info)
 ##testig ends
+
+@app.route('/api/supabase-credentials')
+def supabase_credentials():
+    return jsonify({
+        'url': os.getenv('SUPABASE_URL'),
+        'key': os.getenv('SUPABASE_KEY')
+    })
 @app.route('/')
 def index():
     if 'user' in session:
@@ -199,13 +265,6 @@ def index():
 def login():
     return render_template('login.html')
 
-@app.route('/api/supabase-credentials')
-def supabase_credentials():
-    # Only provide the public key, never expose the service role key
-    return jsonify({
-        'url': os.getenv('SUPABASE_URL'),
-        'key': os.getenv('SUPABASE_KEY')
-    })
 
 @app.route('/callback')
 def callback():
@@ -222,14 +281,15 @@ def auth():
         # Extract user ID and access token from data
         user_id = data.get('id')
         access_token = data.get('access_token')  # This is the Supabase JWT
-        
+        refresh_token = data.get('refresh_token')
         # Store the JWT token
         access_token = data.get('access_token')
-        if access_token:
+        if access_token and refresh_token:
             session['supabase_token'] = access_token
-            print(f"Stored access token: {access_token[:10]}...")
+            session['supabase_refresh_token'] = refresh_token
+            print(f"Stored tokens - Access: {access_token[:10]}..., Refresh: {refresh_token[:10]}...")
         else:
-            print("No access token found in auth data")
+            print("Missing tokens - Access:", bool(access_token), "Refresh:", bool(refresh_token))
             
         # Store the session data from Supabase
         session['user'] = {
@@ -297,7 +357,7 @@ def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None)
         print(f"Image bytes length: {len(image_bytes) if isinstance(image_bytes, bytes) else 'not bytes'}")
         
         # Upload the image to Supabase
-        result = supabase.storage.from_('character-images').upload(
+        result = supabase_client.storage.from_('character-images').upload(
             path=file_path,
             file=image_bytes,
             file_options={"content-type": "image/png"}
@@ -306,7 +366,7 @@ def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None)
         print(f"Upload result: {result}")
         
         # Get the public URL
-        public_url = supabase.storage.from_('character-images').get_public_url(file_path)
+        public_url = supabase_client.storage.from_('character-images').get_public_url(file_path)
         return public_url
         
     except Exception as e:

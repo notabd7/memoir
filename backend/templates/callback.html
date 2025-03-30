@@ -77,11 +77,13 @@
                         if (data && data.session) {
                             console.log("User:", data.session.user);
                             console.log("Access token:", data.session.access_token);
-                            
+                            console.log("Refresh token:", data.session.refresh_token);
+
                             // Add the access token to the data being sent
                             const userData = {
                                 ...data.session.user,
-                                access_token: data.session.access_token
+                                access_token: data.session.access_token,
+                                refresh_token: data.session.refresh_token
                             };
                             
                             
