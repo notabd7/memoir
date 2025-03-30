@@ -58,183 +58,10 @@ def get_authenticated_supabase(user_id=None):
         return create_client(SUPABASE_URL, SUPABASE_KEY)
     
 
-@app.route('/diagnose_folder', methods=['GET'])
-def diagnose_folder():
-    try:
 
-        if 'user' not in session:
-            return jsonify({'error': 'Not logged in'}), 401
-            
-        user_id = session['user']['id']
-        
-        # Create folder structure information
-        folder_info = {
-            'user_id': user_id,
-            'path_structure': {
-                'main_image_path': f"{user_id}/main.png",
-                'sample_character_path': f"{user_id}/people/sample-uuid.png"
-            },
-            'path_extraction': {
-                'foldername_first_segment': storage_foldername_simulation(f"{user_id}/main.png"),
-                'position_check': f"{user_id}/main.png".startswith(user_id)
-            },
-            'token_info': {
-                'has_token': 'supabase_token' in session,
-                'token_length': len(session.get('supabase_token', '')) if 'supabase_token' in session else 0
-            }
-        }
-        
-        # Check if we can create the folder directly with service role
-        try:
-            test_file = b"test content"
-            test_path = f"{user_id}/.folder_test"
-            
-            result = supabase_admin.storage.from_('character-images').upload(
-                path=test_path,
-                file=test_file,
-                file_options={"content-type": "text/plain", "upsert": True}
-            )
-            
-            folder_info['admin_test'] = {
-                'success': True,
-                'message': 'Folder test file created with admin client'
-            }
-        except Exception as e:
-            folder_info['admin_test'] = {
-                'success': False,
-                'error': str(e)
-            }
-        
-        return jsonify(folder_info)
-    
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-        
-# Simple simulation of storage.foldername function for diagnostic purposes
-def storage_foldername_simulation(path):
-    parts = path.split('/')
-    if len(parts) <= 1:
-        return []
-    return parts[:-1]  # All parts except the last (filename)
 
-@app.route('/test_auth', methods=['GET'])
-def test_auth():
-    try:
-        if 'user' not in session:
-            return jsonify({'error': 'Not logged in'}), 401
-            
-        user_id = session['user']['id']
-        
-        # Try to get the user's auth status
-        user_info = {
-            'session_user_id': user_id,
-            'session_data': session.get('user', {})
-        }
-        
-        # Check if we can access the users table
-        try:
-            result = supabase.table('users').select('*').eq('id', user_id).execute()
-            user_info['database_user'] = result.data
-        except Exception as e:
-            user_info['database_error'] = str(e)
-        
-        # Try to list buckets to see if we have any permissions
-        try:
-            buckets = supabase.storage.list_buckets()
-            user_info['storage_buckets'] = buckets
-        except Exception as e:
-            user_info['storage_error'] = str(e)
-            
-        return jsonify(user_info)
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
-@app.route('/test_bucket', methods=['GET'])
-def test_bucket():
-    try:
-        if 'user' not in session:
-            return jsonify({'error': 'Not logged in'}), 401
-            
-        # Try to list all buckets
-        try:
-            buckets = supabase.storage.list_buckets()
-        except Exception as e:
-            return jsonify({'error': f'Error listing buckets: {str(e)}'}), 500
-            
-        # Check if our bucket exists
-        bucket_exists = False
-        for bucket in buckets:
-            if bucket.get('name') == 'character-images':
-                bucket_exists = True
-                break
-                
-        if not bucket_exists:
-            return jsonify({
-                'error': 'Bucket "character-images" not found',
-                'available_buckets': buckets
-            }), 404
-            
-        # Try to list objects in the bucket
-        try:
-            user_id = session['user']['id']
-            files = supabase.storage.from_('character-images').list(user_id)
-            return jsonify({
-                'bucket_exists': True,
-                'user_folder_contents': files
-            })
-        except Exception as e:
-            return jsonify({
-                'bucket_exists': True,
-                'list_error': str(e)
-            }), 500
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
-
-    try:
-        if 'user' not in session:
-            return jsonify({'error': 'Not logged in'}), 401
-            
-        user_id = session['user']['id']
-        
-        # Create a simple test file
-        test_content = b"This is a test file"
-        
-        # Try using the service role key directly (for debugging only)
-        import supabase
-        supabase_admin = supabase.create_client(
-            os.getenv('SUPABASE_URL'),
-            os.getenv('SUPABASE_SERVICE_KEY')  # Service role key
-        )
-        
-        file_path = f"{user_id}/test.txt"
-        
-        # Try the upload
-        try:
-            result = supabase_admin.storage.from_('character-images').upload(
-                path=file_path,
-                file=test_content,
-                file_options={"content-type": "text/plain"}
-            )
-            
-            url = supabase_admin.storage.from_('character-images').get_public_url(file_path)
-            
-            return jsonify({
-                'success': True,
-                'message': 'Test upload with service role successful',
-                'url': url
-            })
-        except Exception as e:
-            return jsonify({
-                'error': f'Service role upload failed: {str(e)}'
-            }), 500
-            
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-@app.route('/debug_tokens', methods=['GET'])
-def debug_tokens():
+# @app.route('/debug_tokens', methods=['GET'])
+# def debug_tokens():
     if 'user' not in session:
         return jsonify({'error': 'Not logged in'}), 401
         
@@ -376,95 +203,95 @@ def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None)
         return None
 
 
-@app.route('/test_storage_upload', methods=['GET'])
-def test_storage_upload():
-    try:
-        if 'user' not in session:
-            return jsonify({'error': 'Not logged in'}), 401
+# @app.route('/test_storage_upload', methods=['GET'])
+# def test_storage_upload():
+#     try:
+#         if 'user' not in session:
+#             return jsonify({'error': 'Not logged in'}), 401
             
-        # Path to a test image in your project
-        test_image_path = os.path.join(os.path.dirname(__file__), 'static', 'test_image.png')
+#         # Path to a test image in your project
+#         test_image_path = os.path.join(os.path.dirname(__file__), 'static', 'test_image.png')
         
-        # Check if test image exists
-        if not os.path.exists(test_image_path):
-            # Try an alternative path
-            test_image_path = os.path.join('static', 'test_image.png')
-            if not os.path.exists(test_image_path):
-                return jsonify({
-                    'error': 'Test image not found. Please place a test_image.png file in your static folder',
-                    'paths_tried': [
-                        os.path.join(os.path.dirname(__file__), 'static', 'test_image.png'),
-                        os.path.join('static', 'test_image.png')
-                    ]
-                }), 404
+#         # Check if test image exists
+#         if not os.path.exists(test_image_path):
+#             # Try an alternative path
+#             test_image_path = os.path.join('static', 'test_image.png')
+#             if not os.path.exists(test_image_path):
+#                 return jsonify({
+#                     'error': 'Test image not found. Please place a test_image.png file in your static folder',
+#                     'paths_tried': [
+#                         os.path.join(os.path.dirname(__file__), 'static', 'test_image.png'),
+#                         os.path.join('static', 'test_image.png')
+#                     ]
+#                 }), 404
         
-        print(f"Using test image at: {test_image_path}")
+#         print(f"Using test image at: {test_image_path}")
         
-        user_id = session['user']['id']
+#         user_id = session['user']['id']
         
-        # Use our updated function to upload the image
-        supabase_image_url = save_image_to_supabase(test_image_path, user_id, is_main=True)
+#         # Use our updated function to upload the image
+#         supabase_image_url = save_image_to_supabase(test_image_path, user_id, is_main=True)
         
-        if not supabase_image_url:
-            return jsonify({'error': 'Failed to upload test image to storage'}), 500
+#         if not supabase_image_url:
+#             return jsonify({'error': 'Failed to upload test image to storage'}), 500
             
-        return jsonify({
-            'success': True,
-            'message': 'Test image uploaded successfully',
-            'image_url': supabase_image_url
-        })
+#         return jsonify({
+#             'success': True,
+#             'message': 'Test image uploaded successfully',
+#             'image_url': supabase_image_url
+#         })
         
-    except Exception as e:
-        print(f"Error in test upload: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Test upload failed: {str(e)}'}), 500
+#     except Exception as e:
+#         print(f"Error in test upload: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         return jsonify({'error': f'Test upload failed: {str(e)}'}), 500
     
 
-@app.route('/test_blank_image_upload', methods=['GET'])
-def test_blank_image_upload():
-    try:
-        if 'user' not in session:
-            return jsonify({'error': 'Not logged in'}), 401
+# @app.route('/test_blank_image_upload', methods=['GET'])
+# def test_blank_image_upload():
+#     try:
+#         if 'user' not in session:
+#             return jsonify({'error': 'Not logged in'}), 401
             
-        # Create a blank test image
-        from PIL import Image
-        import io
+#         # Create a blank test image
+#         from PIL import Image
+#         import io
         
-        # Create a small blank image
-        img = Image.new('RGB', (100, 100), color = (73, 109, 137))
+#         # Create a small blank image
+#         img = Image.new('RGB', (100, 100), color = (73, 109, 137))
         
-        # Save to a bytes buffer
-        img_byte_arr = io.BytesIO()
-        img.save(img_byte_arr, format='PNG')
-        img_byte_arr.seek(0)
+#         # Save to a bytes buffer
+#         img_byte_arr = io.BytesIO()
+#         img.save(img_byte_arr, format='PNG')
+#         img_byte_arr.seek(0)
         
-        user_id = session['user']['id']
+#         user_id = session['user']['id']
         
-        # Define the file path in Supabase storage
-        file_path = f"{user_id}/test_blank.png"
+#         # Define the file path in Supabase storage
+#         file_path = f"{user_id}/test_blank.png"
         
-        # Upload directly
-        result = supabase.storage.from_('character-images').upload(
-            path=file_path,
-            file=img_byte_arr.getvalue(),
-            file_options={"content-type": "image/png"}
-        )
+#         # Upload directly
+#         result = supabase.storage.from_('character-images').upload(
+#             path=file_path,
+#             file=img_byte_arr.getvalue(),
+#             file_options={"content-type": "image/png"}
+#         )
         
-        # Get the public URL
-        public_url = supabase.storage.from_('character-images').get_public_url(file_path)
+#         # Get the public URL
+#         public_url = supabase.storage.from_('character-images').get_public_url(file_path)
         
-        return jsonify({
-            'success': True,
-            'message': 'Blank test image created and uploaded successfully',
-            'image_url': public_url
-        })
+#         return jsonify({
+#             'success': True,
+#             'message': 'Blank test image created and uploaded successfully',
+#             'image_url': public_url
+#         })
         
-    except Exception as e:
-        print(f"Error in blank image test: {e}")
-        import traceback
-        traceback.print_exc()
-        return jsonify({'error': f'Blank image test failed: {str(e)}'}), 500
+#     except Exception as e:
+#         print(f"Error in blank image test: {e}")
+#         import traceback
+#         traceback.print_exc()
+#         return jsonify({'error': f'Blank image test failed: {str(e)}'}), 500
     
 
 @app.route('/save_main_character', methods=['POST'])
