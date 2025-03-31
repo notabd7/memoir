@@ -25,17 +25,24 @@ document.addEventListener('DOMContentLoaded', function() {
     
     
     if (existingCharacter) {
-        // Initially hide the character creation form
-        characterCreation.style.display = 'none';
+        // Initially hide the character creation elements
+        cameraPreview.style.display = 'none';
+        capturedImageContainer.style.display = 'none';
+        document.querySelector('.upload-alternative').style.display = 'none';
+        document.querySelector('.camera-controls').style.display = 'none';
         
         // Add event listener to "Create New Character" button
         document.getElementById('create-new-character').addEventListener('click', function() {
             existingCharacter.style.display = 'none';
-            characterCreation.style.display = 'block';
+            cameraPreview.style.display = 'block';
+            document.querySelector('.upload-alternative').style.display = 'block';
+            document.querySelector('.camera-controls').style.display = 'block';
+            initCamera(); // Make sure camera initializes
         });
+    } else {
+        // Start camera for new users
+        initCamera();
     }
-    
-    // Rest of your existing code...
 });
     // Initialize camera
     async function initCamera() {
@@ -125,7 +132,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     
-// Add to dashboard.js
+// Update the submitButton event listener in dashboard.js
 submitButton.addEventListener('click', async () => {
     if (!photoBlob) return;
     
@@ -134,13 +141,14 @@ submitButton.addEventListener('click', async () => {
     retryButton.style.display = 'none';
     submitButton.style.display = 'none';
     processingIndicator.style.display = 'block';
+    processingIndicator.querySelector('p').textContent = 'Analyzing your image...';
     
     // Create form data
     const formData = new FormData();
     formData.append('image', photoBlob);
     
     try {
-        // Get description (testing version)
+        // Step 1: Get description from image
         const response = await fetch('/process_image', {
             method: 'POST',
             body: formData
@@ -148,11 +156,9 @@ submitButton.addEventListener('click', async () => {
         
         const result = await response.json();
         
-        // Hide processing indicator
-        processingIndicator.style.display = 'none';
-        
         if (result.error) {
             alert('Error: ' + result.error);
+            processingIndicator.style.display = 'none';
             retryButton.style.display = 'inline';
             return;
         }
@@ -161,9 +167,8 @@ submitButton.addEventListener('click', async () => {
         characterDescription.textContent = result.description;
         characterResult.style.display = 'block';
         
-        // Generate character image
-        processingIndicator.style.display = 'block';
-        processingIndicator.querySelector('p').textContent = 'Generating your manga character...';
+        // Step 2: Generate character image from description
+        processingIndicator.querySelector('p').textContent = 'Creating your manga character...';
         
         const imageResponse = await fetch('/generate_character', {
             method: 'POST',
@@ -189,7 +194,7 @@ submitButton.addEventListener('click', async () => {
         document.getElementById('character-image').src = imageResult.image_url;
         document.getElementById('character-image-result').style.display = 'block';
         
-        // Save main character to database
+        // Step 3: Save main character to database
         try {
             const saveResponse = await fetch('/save_main_character', {
                 method: 'POST',
@@ -206,13 +211,27 @@ submitButton.addEventListener('click', async () => {
             
             if (saveResult.error) {
                 console.error('Error saving character:', saveResult.error);
+                alert('Error saving your character: ' + saveResult.error);
             } else {
                 console.log('Character saved successfully!');
-                // Optionally redirect to the characters page
-                // window.location.href = '/people';
+                
+                // Show success message
+                const successMessage = document.createElement('div');
+                successMessage.className = 'success-message';
+                successMessage.innerHTML = `
+                    <p>Your manga character has been created successfully!</p>
+                    <button id="view-characters" class="action-button">View All Characters</button>
+                `;
+                document.getElementById('character-image-result').appendChild(successMessage);
+                
+                // Add event listener to view characters button
+                document.getElementById('view-characters').addEventListener('click', () => {
+                    window.location.href = '/people';
+                });
             }
         } catch (error) {
             console.error('Error saving character:', error);
+            alert('Error saving your character. Please try again.');
         }
     } catch (error) {
         console.error('Error processing image:', error);
@@ -222,108 +241,4 @@ submitButton.addEventListener('click', async () => {
     }
 });
 
-// submitButton.addEventListener('click', async () => {
-//     if (!photoBlob) return;
-    
-//     // Show processing indicator
-//     capturedImageContainer.style.display = 'none';
-//     retryButton.style.display = 'none';
-//     submitButton.style.display = 'none';
-//     processingIndicator.style.display = 'block';
-    
-//     // Create form data
-//     const formData = new FormData();
-//     formData.append('image', photoBlob);
-    
-//     try {
-//         // Send to server for GPT-4o processing
-//         const response = await fetch('/process_image', {
-//             method: 'POST',
-//             body: formData
-//         });
-        
-//         const result = await response.json();
-        
-//         // Hide processing indicator
-//         processingIndicator.style.display = 'none';
-        
-//         if (result.error) {
-//             alert('Error: ' + result.error);
-//             retryButton.style.display = 'inline';
-//             return;
-//         }
-        
-//         // Display character description
-//         characterDescription.textContent = result.description;
-//         characterResult.style.display = 'block';
-        
-//         // Now generate the character image
-//         processingIndicator.style.display = 'block';
-//         processingIndicator.querySelector('p').textContent = 'Generating your manga character...';
-        
-//         const imageResponse = await fetch('/generate_character', {
-//             method: 'POST',
-//             headers: {
-//                 'Content-Type': 'application/json'
-//             },
-//             body: JSON.stringify({
-//                 description: result.description
-//             })
-//         });
-        
-//         const imageResult = await imageResponse.json();
-        
-//         // Hide processing indicator
-//         processingIndicator.style.display = 'none';
-        
-//         if (imageResult.error) {
-//             alert('Error generating image: ' + imageResult.error);
-//             return;
-//         }
-        
-//         // Display generated character image
-//         document.getElementById('character-image').src = imageResult.image_url;
-//         document.getElementById('character-image-result').style.display = 'block';
-        
-//         // Save main character to Firebase
-//         try {
-//             const saveResponse = await fetch('/save_main_character', {
-//                 method: 'POST',
-//                 headers: {
-//                     'Content-Type': 'application/json'
-//                 },
-//                 body: JSON.stringify({
-//                     imageUrl: imageResult.image_url,
-//                     description: result.description
-//                 })
-//             });
-            
-//             const saveResult = await saveResponse.json();
-            
-//             if (saveResult.error) {
-//                 console.error('Error saving character:', saveResult.error);
-//             }
-//         } catch (error) {
-//             console.error('Error saving character to Firebase:', error);
-//         }
-        
-//         // Set up download button
-//         document.getElementById('download-image').addEventListener('click', () => {
-//             const link = document.createElement('a');
-//             link.href = imageResult.image_url;
-//             link.download = 'manga-character.png';
-//             document.body.appendChild(link);
-//             link.click();
-//             document.body.removeChild(link);
-//         });
-        
-//     } catch (error) {
-//         console.error('Error processing image:', error);
-//         processingIndicator.style.display = 'none';
-//         alert('Error processing your image. Please try again.');
-        
-//         // Reset UI to retry
-//         retryButton.style.display = 'inline';
-//     }
-// });
 });

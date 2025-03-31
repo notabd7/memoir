@@ -33,3 +33,29 @@ for storage I want to use firebase to store users account (will be using google 
 and we will store the closest people they entered with their images
 and we will store the manga they generate every time given the script
 for now this is the current plan lets start in phases, testing and developing before we move on
+
+
+status 3/31
+images uploaded tested and done
+character images not in db test them
+images not being populated on profile cards
+get these done
+next steps
+given a script of the whole day,
+gpt4-o takes it and develops a 3 page (4-5 panels on each)
+maanga
+then we go ahead and store these in an array, each index corresponds to each panell
+the array entried will be a tuple of the following formut 
+[{panel_description}{dialogue},{}{}, ...]
+extract panel description and get dall e to generate image
+use dialogue and make it so it apeears as a speach bubble on top of the image
+store these panels
+then just diaply them in order
+leave front end 
+
+implement appending so that if the same user sends another script
+the next day the ,maanga gets updated 
+
+substitute script with omi
+
+and then front end

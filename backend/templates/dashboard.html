@@ -15,6 +15,19 @@
             max-width: 300px;
             margin: 0 auto 15px;
         }
+        .success-message {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: rgba(52, 168, 83, 0.1);
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .success-message p {
+            margin-bottom: 15px;
+            font-weight: bold;
+            color: #34A853;
+        }
         </style>
 <head>
     <title>Manga Creator - Dashboard</title>
@@ -64,7 +77,8 @@
                             <button id="retry-button" class="action-button" style="display:none;">Retry</button>
                             <button id="submit-button" class="action-button" style="display:none;">Use This Photo</button>
                         </div>
-                        {% if main_character %}
+                       <!-- Modify this part in dashboard.html -->
+{% if main_character %}
 <div class="existing-character">
     <h3>Your Current Manga Character:</h3>
     <div class="character-image-container">

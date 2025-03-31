@@ -121,25 +121,31 @@ def index():
     main_character = None
     
     try:
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
         # First check characters table
-        main_result = supabase.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', True).execute()
+        main_result = supabase_client.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', True).execute()
         
         if main_result.data:
             main_character = main_result.data[0]
         else:
             # Check users table
-            user_result = supabase.table('users').select('main_character_url, main_character_description').eq('id', user_id).execute()
+            user_result = supabase_client.table('users').select('main_character_url, main_character_description').eq('id', user_id).execute()
             
             if user_result.data and user_result.data[0].get('main_character_url'):
                 main_character = {
                     'image_url': user_result.data[0].get('main_character_url'),
                     'description': user_result.data[0].get('main_character_description')
                 }
+        
+        print(f"Found main character: {main_character}")
     except Exception as e:
         print(f"Error fetching main character: {e}")
+        import traceback
+        traceback.print_exc()
     
     return render_template('dashboard.html', user=session['user'], main_character=main_character)
-
 @app.route('/login')
 def login():
     return render_template('login.html')
@@ -230,17 +236,48 @@ def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None)
         print(f"Image bytes type: {type(image_bytes)}")
         print(f"Image bytes length: {len(image_bytes) if isinstance(image_bytes, bytes) else 'not bytes'}")
         
-        # Upload the image to Supabase - use authenticated client
-        result = supabase_client.storage.from_('character-images').upload(
-            path=file_path,
-            file=image_bytes,
-            file_options={"content-type": "image/png"}
-        )
-        
-        print(f"Upload result: {result}")
+        try:
+            # First try to update if the file exists
+            print(f"Trying to update existing file...")
+            result = supabase_client.storage.from_('character-images').update(
+                path=file_path,
+                file=image_bytes,
+                file_options={"content-type": "image/png"}
+            )
+            print(f"Update result: {result}")
+        except Exception as e:
+            print(f"Update failed (likely file doesn't exist yet): {e}")
+            # If update fails, try to upload as new file
+            try:
+                print(f"Trying to upload new file...")
+                result = supabase_client.storage.from_('character-images').upload(
+                    path=file_path,
+                    file=image_bytes,
+                    file_options={"content-type": "image/png"}
+                )
+                print(f"Upload result: {result}")
+            except Exception as upload_error:
+                if "The resource already exists" in str(upload_error) or "Duplicate" in str(upload_error):
+                    # If we get here, both update and upload failed
+                    # Let's try to remove and then upload
+                    print(f"Both update and upload failed. Removing existing file and then uploading...")
+                    try:
+                        supabase_client.storage.from_('character-images').remove([file_path])
+                        result = supabase_client.storage.from_('character-images').upload(
+                            path=file_path,
+                            file=image_bytes,
+                            file_options={"content-type": "image/png"}
+                        )
+                        print(f"Remove and re-upload result: {result}")
+                    except Exception as final_error:
+                        print(f"Final attempt failed: {final_error}")
+                        raise final_error
+                else:
+                    raise upload_error
         
         # Get the public URL - use authenticated client
         public_url = supabase_client.storage.from_('character-images').get_public_url(file_path)
+        print(f"Generated public URL: {public_url}")
         return public_url
         
     except Exception as e:
@@ -248,7 +285,7 @@ def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None)
         import traceback
         traceback.print_exc()
         return None
-
+    
 # @app.route('/test_storage_upload', methods=['GET'])
 # def test_storage_upload():
 #     try:
@@ -354,8 +391,7 @@ def save_main_character():
             return jsonify({'error': 'Missing image URL or description'}), 400
         
         user_id = session['user']['id']
-        print(f"User ID from session: {user_id}")
-        print(f"User ID type: {type(user_id)}")
+        
         
         # Get authenticated client
         supabase_client = get_authenticated_supabase(user_id)
@@ -430,8 +466,6 @@ def add_person():
         image = request.files['image']
         user_id = session['user']['id']
         
-        print(f"User ID from session: {user_id}")
-        print(f"User ID type: {type(user_id)}")
         
         # Get authenticated client
         supabase_client = get_authenticated_supabase(user_id)
@@ -440,9 +474,19 @@ def add_person():
         if not ensure_user_exists(user_id, supabase_client):
             return jsonify({'error': 'Failed to ensure user exists in database'}), 500
         
-        # For testing, use a predefined description
-        description = "A young manga character with confident posture and determined expression with stylized sharp eyes and spiky hair."
+        print("Generating description from image...")
+        image.seek(0)  # Reset file pointer for reading
+        description, error = process_image_with_gpt4o(image)
         
+        if error:
+            return jsonify({'error': f'Failed to generate description: {error}'}), 500
+        
+        # Step 2: Generate manga character image from the description
+        print(f"Generating character image from description: {description[:100]}...")
+        image_url, error = generate_character_with_dalle(description)
+        
+        if error:
+            return jsonify({'error': f'Failed to generate character image: {error}'}), 500
         # Generate an ID for the character
         character_id = str(uuid.uuid4())
         
@@ -651,49 +695,27 @@ def generate_character_with_dalle(description):
     except Exception as e:
         return None, f"Error generating character image: {str(e)}"
 
-# Update the existing routes to use these functions
+
 @app.route('/process_image', methods=['POST'])
 def process_image():
     try:
         if 'image' not in request.files:
             return jsonify({'error': 'No image provided'}), 400
         
-        # Instead of calling GPT-4o, return a predefined description
-        sample_descriptions = [
-            "A young manga character with confident posture and determined expression. The character has stylized sharp eyes and spiky hair, drawn with bold line art in classic manga style. The composition focuses on a three-quarter view pose that conveys dynamic energy and personality.",
-            "A serene manga character with gentle features and thoughtful expression. The art style uses delicate line work with soft shading techniques typical of shojo manga. The character's flowing hair frames their face, creating a balanced composition that emphasizes emotion and introspection.",
-            "A bold, action-oriented manga character with dynamic pose and intense expression. The illustration employs strong contrast between black and white areas with sharp, angular line work reminiscent of seinen manga styles. The composition uses dramatic perspective to enhance the character's powerful presence."
-        ]
+        image = request.files['image']
+        description, error = process_image_with_gpt4o(image)
         
-        # Randomly select a description
-        import random
-        description = random.choice(sample_descriptions)
-        
+        if error:
+            return jsonify({'error': error}), 500
+            
         return jsonify({'description': description})
     
     except Exception as e:
         print(f"Error processing image: {e}")
         return jsonify({'error': f'Failed to process image: {str(e)}'}), 500
-    
-# @app.route('/process_image', methods=['POST'])
-# def process_image():
-#     try:
-#         if 'image' not in request.files:
-#             return jsonify({'error': 'No image provided'}), 400
-        
-#         image = request.files['image']
-#         description, error = process_image_with_gpt4o(image)
-        
-#         if error:
-#             return jsonify({'error': error}), 500
-            
-#         return jsonify({'description': description})
-    
-#     except Exception as e:
-#         print(f"Error processing image: {e}")
-#         return jsonify({'error': f'Failed to process image: {str(e)}'}), 500
 
 
+ 
 @app.route('/generate_character', methods=['POST'])
 def generate_character():
     try:
@@ -703,44 +725,16 @@ def generate_character():
         if not description:
             return jsonify({'error': 'No description provided'}), 400
         
-        # Instead of calling DALL-E, return a path to one of your local test images
-        test_images = [
-            os.path.join('static', 'main.png'),
-            os.path.join('static', 'char1.png'),
-            os.path.join('static', 'char2.png')
-        ]
+        image_url, error = generate_character_with_dalle(description)
         
-        import random
-        selected_image = random.choice(test_images)
-        
-        # Create a full URL for the image
-        image_url = url_for('static', filename=os.path.basename(selected_image), _external=True)
-        
+        if error:
+            return jsonify({'error': error}), 400
+            
         return jsonify({'image_url': image_url})
     
     except Exception as e:
         print(f"Error generating character image: {e}")
         return jsonify({'error': f'Failed to generate character image: {str(e)}'}), 500
-    
-# @app.route('/generate_character', methods=['POST'])
-# def generate_character():
-#     try:
-#         data = request.json
-#         description = data.get('description')
-        
-#         if not description:
-#             return jsonify({'error': 'No description provided'}), 400
-        
-#         image_url, error = generate_character_with_dalle(description)
-        
-#         if error:
-#             return jsonify({'error': error}), 400
-            
-#         return jsonify({'image_url': image_url})
-    
-#     except Exception as e:
-#         print(f"Error generating character image: {e}")
-#         return jsonify({'error': f'Failed to generate character image: {str(e)}'}), 500
 
 
 
