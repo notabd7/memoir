@@ -61,7 +61,137 @@ def ensure_user_exists(user_id, supabase_client):
         import traceback
         traceback.print_exc()
         return False
-    
+
+def generate_manga_panels_with_dalle(panels, dialogues):
+    """Generate manga panel images using DALL-E based on panel descriptions"""
+    try:
+        print("=== Starting DALL-E image generation ===")
+        
+        if not OPENAI_API_KEY:
+            print("Error: OpenAI API key is not set")
+            return None
+        
+        # Add panel_number to each panel
+        for i, panel in enumerate(panels):
+            panel["panel_number"] = i
+        
+        # Function to generate a single image with DALL-E
+        def generate_panel_image(panel):
+            try:
+                panel_number = panel.get("panel_number")
+                description = panel.get("description", "")
+                
+                # Build the prompt by combining panel description with character descriptions
+                prompt_parts = [description]
+                
+                # Add character descriptions if available
+                for key, value in panel.items():
+                    if key not in ["description", "panel_number"] and isinstance(value, str):
+                        prompt_parts.append(f"{key}: {value}")
+                
+                # Combine into a final prompt with manga style instructions
+                prompt = "Create a BLACK AND WHITE ONLY image in a MANGA style. " + \
+                         "The image should look like it was SKETCHED with pen and ink, with strong lines and contrasts. " + \
+                         "Scene: " + " ".join(prompt_parts)
+                
+                # Limit prompt to a reasonable length for DALL-E
+                if len(prompt) > 3800:  # DALL-E has a limit around 4000 chars
+                    prompt = prompt[:3800]
+                
+                print(f"Generating image for panel {panel_number}...")
+                print(f"Prompt (truncated): {prompt[:200]}...")
+                
+                headers = {
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+                
+                payload = {
+                    "model": "dall-e-3",
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "1024x1024",
+                    "quality": "standard",
+                    "style": "vivid"  # Using vivid for more dramatic manga-like imagery
+                }
+                
+                response = requests.post(
+                    "https://api.openai.com/v1/images/generations",
+                    headers=headers,
+                    json=payload
+                )
+                
+                if response.status_code != 200:
+                    print(f"Error generating image for panel {panel_number}: {response.text}")
+                    return {
+                        "panel_number": panel_number,
+                        "image_url": None,
+                        "error": response.text
+                    }
+                
+                result = response.json()
+                image_url = result['data'][0]['url']
+                
+                print(f"Successfully generated image for panel {panel_number}")
+                
+                return {
+                    "panel_number": panel_number,
+                    "image_url": image_url,
+                    "error": None
+                }
+            
+            except Exception as e:
+                print(f"Error generating image for panel {panel_number}: {e}")
+                import traceback
+                traceback.print_exc()
+                return {
+                    "panel_number": panel.get("panel_number"),
+                    "image_url": None,
+                    "error": str(e)
+                }
+        
+        # Process panels with concurrency
+        import concurrent.futures
+        
+        results = []
+        
+        # Using ThreadPoolExecutor to send concurrent requests
+        # Limiting to max 5 concurrent requests to avoid rate limits
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            # Submit all panel generation tasks
+            futures = [executor.submit(generate_panel_image, panel) for panel in panels]
+            
+            # Collect results as they finish
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if result:
+                    results.append(result)
+        
+        # Sort results by panel_number to maintain original order
+        sorted_results = sorted(results, key=lambda x: x.get("panel_number", 0))
+        
+        # Create the final manga data structure
+        manga_data = []
+        for i, result in enumerate(sorted_results):
+            panel_number = result.get("panel_number")
+            dialogue = dialogues[panel_number] if panel_number < len(dialogues) else ""
+            
+            manga_data.append({
+                "panel_number": panel_number,
+                "image_url": result.get("image_url"),
+                "dialogue": dialogue,
+                "error": result.get("error")
+            })
+        
+        print(f"Completed generating {len(manga_data)} manga panels")
+        return manga_data
+        
+    except Exception as e:
+        print(f"Error in generate_manga_panels_with_dalle: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+       
 def get_authenticated_supabase(user_id=None):
     """Get a Supabase client with the user's authentication token"""
     try:
@@ -170,6 +300,381 @@ def callback():
     return render_template('callback.html')
 
 
+# Add these imports at the top of your app.py file if not already there
+import json
+from datetime import datetime
+
+
+@app.route('/generate_manga', methods=['POST'])
+def generate_manga():
+    try:
+        print("=== Starting generate_manga route ===")
+        
+        if 'user' not in session:
+            print("Error: User not logged in")
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        print(f"User authenticated: {session['user'].get('id')}")
+        
+        data = request.json
+        if not data:
+            print("Error: No JSON data in request")
+            return jsonify({'error': 'No data provided'}), 400
+            
+        script = data.get('script')
+        print(f"Received script: {script[:100]}...")  # Print first 100 chars of script
+        
+        if not script:
+            print("Error: No script provided in request data")
+            return jsonify({'error': 'No script provided'}), 400
+        
+        # Request parameter to control whether to generate images or just panels
+        generate_images = data.get('generate_images', False)
+        
+        user_id = session['user']['id']
+        print(f"Processing for user ID: {user_id}")
+        
+        # Get authenticated client
+        print("Getting authenticated Supabase client...")
+        try:
+            supabase_client = get_authenticated_supabase(user_id)
+            print("Successfully got Supabase client")
+        except Exception as e:
+            print(f"Error getting Supabase client: {e}")
+            return jsonify({'error': f'Authentication error: {str(e)}'}), 500
+        
+        # Get user's characters
+        print("Fetching user's characters...")
+        characters = []
+        
+        # Get main character
+        try:
+            print("Fetching main character...")
+            main_char_result = supabase_client.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', True).execute()
+            print(f"Main character query result: {main_char_result.data}")
+            
+            main_character = None
+            if main_char_result.data:
+                main_character = main_char_result.data[0]
+                print(f"Found main character: {main_character.get('name')}")
+            else:
+                # Try to get main character from users table
+                print("No main character in characters table, checking users table...")
+                user_info = supabase_client.table('users').select('main_character_url, main_character_description').eq('id', user_id).execute()
+                print(f"User info result: {user_info.data}")
+                
+                if user_info.data and user_info.data[0].get('main_character_description'):
+                    main_character = {
+                        'name': 'Main Character',
+                        'description': user_info.data[0].get('main_character_description')
+                    }
+                    print(f"Created main character from user data: {main_character}")
+            
+            if main_character:
+                characters.append(main_character)
+                print("Added main character to characters list")
+            else:
+                print("No main character found for user")
+                
+        except Exception as e:
+            print(f"Error fetching main character: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Get supporting characters
+        try:
+            print("Fetching supporting characters...")
+            supporting_chars_result = supabase_client.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', False).execute()
+            print(f"Found {len(supporting_chars_result.data)} supporting characters")
+            
+            if supporting_chars_result.data:
+                characters.extend(supporting_chars_result.data)
+                print(f"Added supporting characters to characters list. Total characters: {len(characters)}")
+        except Exception as e:
+            print(f"Error fetching supporting characters: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Process the script with GPT-4o
+        print("Processing script with GPT-4o...")
+        manga_data = process_script_with_gpt4o(script, characters)
+        
+        if not manga_data:
+            print("Error: GPT-4o processing returned no data")
+            return jsonify({'error': 'Failed to generate manga panels'}), 500
+        
+        # Extract panels and dialogues from the processed data
+        panels = manga_data.get('panels', [])
+        dialogues = manga_data.get('dialogues', [])
+        
+        print(f"Successfully processed data: {len(panels)} panels and {len(dialogues)} dialogues")
+        
+        # If generate_images is True, generate images with DALL-E
+        manga_panels = None
+        if generate_images:
+            print("Generating images with DALL-E...")
+            manga_panels = generate_manga_panels_with_dalle(panels, dialogues)
+            
+            if not manga_panels:
+                print("Error: DALL-E processing returned no data")
+                return jsonify({
+                    'success': True,
+                    'panels': panels,
+                    'dialogues': dialogues,
+                    'error': 'Image generation failed'
+                })
+            
+            return jsonify({
+                'success': True,
+                'manga_panels': manga_panels  # Combined data with images and dialogues
+            })
+        else:
+            # Return just the panels and dialogues without images
+            return jsonify({
+                'success': True,
+                'panels': panels,
+                'dialogues': dialogues
+            })
+        
+    except Exception as e:
+        print(f"Unexpected error in generate_manga: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to generate manga: {str(e)}'}), 500    
+
+def enhance_panels_with_character_info(panels, character_descriptions):
+    """
+    Process panels to:
+    1. Extract dialogues into a separate array
+    2. Keep complete character descriptions
+    3. Remove dialogue field from panel objects
+    """
+    enhanced_panels = []
+    dialogues = []
+    
+    for panel in panels:
+        # Extract dialogue to separate array
+        dialogue = panel.get("dialogue", "")
+        dialogues.append(dialogue)
+        
+        # Create a new panel object without the dialogue property
+        enhanced_panel = {
+            "description": panel.get("description", "")
+        }
+        
+        # Find which characters are mentioned in this panel
+        description = panel.get("description", "")
+        mentioned_characters = []
+        
+        for character_name in character_descriptions.keys():
+            # Check if character is mentioned in the description or dialogue
+            # Using case-insensitive search
+            if (character_name.lower() in description.lower() or 
+                character_name.lower() in dialogue.lower()):
+                mentioned_characters.append(character_name)
+        
+        # If no specific characters were detected, include the main character
+        if not mentioned_characters and "Main Character" in character_descriptions:
+            mentioned_characters.append("Main Character")
+        
+        # Add only relevant character descriptions to the panel - use full descriptions
+        for character_name in mentioned_characters:
+            full_desc = character_descriptions.get(character_name, "")
+            enhanced_panel[character_name] = full_desc
+        
+        enhanced_panels.append(enhanced_panel)
+    
+    # Print the final payload structure
+    print("\n=== FINAL PROCESSING RESULTS ===")
+    print(f"Extracted {len(dialogues)} dialogues:")
+    print(json.dumps(dialogues, indent=2))
+    
+    print(f"\nProcessed {len(enhanced_panels)} panels with character descriptions:")
+    # Print a sample panel to avoid overwhelming the console
+    sample_panel = json.dumps(enhanced_panels[0], indent=2)
+    print(f"Sample panel (1 of {len(enhanced_panels)}):")
+    print(sample_panel)
+    
+    # Return both the enhanced panels and dialogues
+    return {
+        "panels": enhanced_panels,
+        "dialogues": dialogues
+    }
+def process_script_with_gpt4o(script, characters):
+    """Process a day script with GPT-4o and return separated manga panels and dialogues"""
+    try:
+        print("=== Starting process_script_with_gpt4o ===")
+        
+        # Create character context
+        character_context = ""
+        character_descriptions = {}  # Dictionary to store character name: description pairs
+        
+        if characters:
+            character_context = "Available characters:\n"
+            for char in characters:
+                char_name = char.get('name', 'Unknown')
+                char_desc = char.get('description', 'No description')
+                
+                # Store the full description for later use
+                character_descriptions[char_name] = char_desc
+                
+                # Use truncated description for the prompt to save tokens
+                character_context += f"- Name: {char_name}\n  Description: {char_desc[:100]}...\n\n"
+            print(f"Created character context with {len(characters)} characters")
+        else:
+            print("No characters available for context")
+        
+        # Check for API key
+        if not OPENAI_API_KEY:
+            print("Error: OpenAI API key is not set")
+            return None
+        
+        print("Preparing API request to OpenAI...")
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        
+        payload = {
+            "model": "gpt-4o",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": f"""You are a manga script writer and artist who creates short manga stories based on real-life events.
+                    
+{character_context}
+
+Your task is to select one significant event from the user's script and create a short manga depicting that event through 8-12 panels (2-3 pages with 4 panels each).
+
+FORMAT YOUR RESPONSE AS A JSON OBJECT with an array of panel objects. Each panel object must have these two properties:
+- 'dialogue': A short, one-line dialogue involving the characters
+- 'description': A detailed visual description of the scene suitable for generating a black and white sketched manga image
+
+Example JSON format:
+```json
+{{
+  "panels": [
+    {{
+      "dialogue": "I can't believe I'm late again!",
+      "description": "Close-up of main character's panicked face, eyes wide with alarm, checking watch"
+      
+    }},
+    {{
+      "dialogue": "The bus is already leaving!",
+      "description": "Wide shot of character running after a bus, arm outstretched, backpack half open"
+    }}
+  ]
+}}
+```
+
+Guidelines:
+- The manga should follow a coherent narrative about the chosen event
+- Use characters mentioned in the script if their names appear; otherwise, use the main character
+- Keep the style consistent with traditional black and white manga
+- Ensure scene descriptions are detailed enough for image generation
+- Make the dialogue authentic and engaging
+
+Make sure descriptions focus on composition, expressions, angles, and manga-specific visual elements.
+
+Remember to format your entire response as a valid JSON object.
+"""
+                },
+                {
+                    "role": "user",
+                    "content": f"Here is my script describing my day. Please create a manga story based on one significant event from it and format your response as JSON:\n\n{script}"
+                }
+            ],
+            "response_format": {"type": "json_object"}
+        }
+        
+        print("Sending request to OpenAI GPT-4o API...")
+        try:
+            response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload)
+            print(f"OpenAI API response status code: {response.status_code}")
+            
+            if response.status_code != 200:
+                print(f"API Error: {response.text}")
+                return None
+                
+            result = response.json()
+            print("Successfully received response from OpenAI")
+        except Exception as e:
+            print(f"Error making request to OpenAI API: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+        
+        if 'choices' not in result:
+            print(f"Unexpected API response format: {result}")
+            return None
+        
+        content = result['choices'][0]['message']['content']
+        print(f"Received content from GPT-4o: {content[:200]}...")  # First 200 chars
+        
+        # Parse the JSON response
+        try:
+            print("Parsing JSON response...")
+            manga_data = json.loads(content)
+            
+            # Extract panels array if it exists, otherwise use the entire response as panels
+            panels = manga_data.get('panels', [])
+            if not panels and isinstance(manga_data, list):
+                panels = manga_data
+                
+            if panels:
+                print(f"Successfully parsed {len(panels)} panels")
+                
+                # Process panels to separate dialogues and add character information
+                processed_data = enhance_panels_with_character_info(panels, character_descriptions)
+                
+                return processed_data
+            else:
+                print("No panels found in the response")
+                return None
+                
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse JSON response from GPT-4o: {e}")
+            print(f"Raw content: {content}")
+            return None
+        
+    except Exception as e:
+        print(f"Unexpected error in process_script_with_gpt4o: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+    
+def filter_panel_characters_simple(panel, character_descriptions):
+    """Simple method to filter characters based on text matching"""
+    dialogue = panel.get("dialogue", "")
+    description = panel.get("description", "")
+    
+    # Create a new panel object with the original properties
+    filtered_panel = {
+        "dialogue": dialogue,
+        "description": description
+    }
+    
+    # Find which characters are mentioned in this panel
+    mentioned_characters = []
+    for character_name in character_descriptions.keys():
+        # Check if character is mentioned in the description or dialogue
+        # Using case-insensitive search
+        if (character_name.lower() in description.lower() or 
+            character_name.lower() in dialogue.lower()):
+            mentioned_characters.append(character_name)
+    
+    # If no specific characters were detected, include the main character
+    if not mentioned_characters and "Main Character" in character_descriptions:
+        mentioned_characters.append("Main Character")
+    
+    # Add only relevant character descriptions to the panel
+    for character_name in mentioned_characters:
+        description = character_descriptions.get(character_name, "")
+        # Create a shortened version of the character description
+        short_desc = description[:150] + "..." if len(description) > 150 else description
+        filtered_panel[character_name] = short_desc
+    
+    return filtered_panel
 
 @app.route('/auth', methods=['POST'])
 def auth():
@@ -737,47 +1242,388 @@ def process_image_with_gpt4o(image):
     except Exception as e:
         return None, f"Error processing image: {str(e)}"
 
-def generate_character_with_dalle(description):
-    """Generate a character image using DALL-E based on the description"""
+def generate_manga_panels_with_dalle(panels, dialogues):
+    """Generate manga panel images using DALL-E with improved error handling and rate limits"""
     try:
-        # Check the description with OpenAI's moderation API
-        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
-        moderation_payload = {"input": description}
-        moderation_response = requests.post(
-            "https://api.openai.com/v1/moderations",
-            headers=headers,
-            json=moderation_payload
-        )
-        moderation_result = moderation_response.json()
+        print("=== Starting DALL-E image generation ===")
         
-        if moderation_result['results'][0]['flagged']:
-            return None, "The generated description was flagged by the content moderation system. Please try a different image."
+        if not OPENAI_API_KEY:
+            print("Error: OpenAI API key is not set")
+            return None
         
-        # If the description passes moderation, proceed to DALL-E
-        dall_e_prompt = f"Create a BLACK AND WHITE ONLY image in a MANGA style animation, THE IMAGE NEEDS TO LOOK LIKE IT WAS SKETCHED the character(s) described below in a frontal pose with a neutral background: {description}. The image should be suitable for all audiences and faithfully represent the provided description without adding extra elements. Pay extra attention to making sure it looks like a manga character."
+        # Add panel_number to each panel
+        for i, panel in enumerate(panels):
+            panel["panel_number"] = i
+        
+        # Function to generate a single image with DALL-E
+        def generate_panel_image(panel):
+            try:
+                panel_number = panel.get("panel_number")
+                description = panel.get("description", "")
+                
+                # Build the prompt by combining panel description with character descriptions
+                prompt_parts = [description]
+                
+                # Add character descriptions if available
+                for key, value in panel.items():
+                    if key not in ["description", "panel_number"] and isinstance(value, str):
+                        prompt_parts.append(f"{key}: {value}")
+                
+                # Combine into a final prompt with manga style instructions
+                prompt = "Create a BLACK AND WHITE ONLY image in a MANGA style. " + \
+                         "The image should look like it was SKETCHED with pen and ink, with strong lines and contrasts. " + \
+                         "Scene: " + " ".join(prompt_parts)
+                
+                # Limit prompt to a reasonable length for DALL-E
+                if len(prompt) > 3800:  # DALL-E has a limit around 4000 chars
+                    prompt = prompt[:3800]
+                
+                print(f"Generating image for panel {panel_number}...")
+                print(f"Prompt (truncated): {prompt[:200]}...")
+                
+                headers = {
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json"
+                }
+                
+                payload = {
+                    "model": "dall-e-3",
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "1024x1024",
+                    "quality": "standard",
+                    "style": "vivid"  # Using vivid for more dramatic manga-like imagery
+                }
+                
+                response = requests.post(
+                    "https://api.openai.com/v1/images/generations",
+                    headers=headers,
+                    json=payload
+                )
+                
+                if response.status_code != 200:
+                    error_data = response.json().get('error', {})
+                    error_code = error_data.get('code', '')
+                    error_message = error_data.get('message', response.text)
+                    
+                    print(f"Error generating image for panel {panel_number}: {error_message}")
+                    
+                    return {
+                        "panel_number": panel_number,
+                        "image_url": None,
+                        "error": error_code,
+                        "error_message": error_message
+                    }
+                
+                result = response.json()
+                image_url = result['data'][0]['url']
+                
+                print(f"Successfully generated image for panel {panel_number}")
+                
+                return {
+                    "panel_number": panel_number,
+                    "image_url": image_url,
+                    "error": None
+                }
+            
+            except Exception as e:
+                print(f"Error generating image for panel {panel_number}: {e}")
+                import traceback
+                traceback.print_exc()
+                return {
+                    "panel_number": panel.get("panel_number"),
+                    "image_url": None,
+                    "error": "exception",
+                    "error_message": str(e)
+                }
+        
+        # Process panels in smaller batches to avoid rate limits
+        max_concurrent = 4  # Reduced from 5 to be safe with rate limits
+        batch_results = []
+        
+        # Process first batch
+        first_batch = panels[:max_concurrent]
+        print(f"Processing first batch of {len(first_batch)} panels...")
+        
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+            futures = [executor.submit(generate_panel_image, panel) for panel in first_batch]
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if result:
+                    batch_results.append(result)
+        
+        # Wait for rate limit to reset
+        if len(panels) > max_concurrent:
+            print("Waiting 60 seconds for rate limit to reset before processing next batch...")
+            import time
+            time.sleep(60)
+        
+        # Process remaining panels in batches
+        remaining_panels = panels[max_concurrent:]
+        while remaining_panels:
+            current_batch = remaining_panels[:max_concurrent]
+            remaining_panels = remaining_panels[max_concurrent:]
+            
+            print(f"Processing next batch of {len(current_batch)} panels...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+                futures = [executor.submit(generate_panel_image, panel) for panel in current_batch]
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    if result:
+                        batch_results.append(result)
+            
+            # Wait for rate limit to reset if more panels remain
+            if remaining_panels:
+                print("Waiting 60 seconds for rate limit to reset before processing next batch...")
+                import time
+                time.sleep(60)
+        
+        # Check for failed panels
+        failed_panels = [result for result in batch_results if result.get("error")]
+        
+        # Retry failed panels with content policy violations
+        content_policy_failures = [p for p in failed_panels if p.get("error") == "content_policy_violation"]
+        if content_policy_failures:
+            print(f"Retrying {len(content_policy_failures)} panels that failed due to content policy violations...")
+            
+            for failed in content_policy_failures:
+                panel_number = failed.get("panel_number")
+                panel = next((p for p in panels if p.get("panel_number") == panel_number), None)
+                
+                if panel:
+                    # Modify the prompt to avoid policy violations
+                    # This is a simplified approach - in a real implementation, 
+                    # you might want to use GPT-4 to modify the prompt
+                    description = panel.get("description", "")
+                    
+                    # Create a sanitized version with less specific details
+                    sanitized_description = "A manga scene showing character in a simple setting."
+                    
+                    # Create a new panel with sanitized description
+                    sanitized_panel = panel.copy()
+                    sanitized_panel["description"] = sanitized_description
+                    
+                    print(f"Retrying panel {panel_number} with sanitized description...")
+                    
+                    # Wait to avoid rate limits
+                    time.sleep(5)
+                    
+                    result = generate_panel_image(sanitized_panel)
+                    if result and not result.get("error"):
+                        # Replace the failed result with the successful one
+                        for i, r in enumerate(batch_results):
+                            if r.get("panel_number") == panel_number:
+                                batch_results[i] = result
+                                break
+        
+        # Sort results by panel_number to maintain original order
+        sorted_results = sorted(batch_results, key=lambda x: x.get("panel_number", 0))
+        
+        # Create the final manga data structure
+        manga_data = []
+        for i, result in enumerate(sorted_results):
+            panel_number = result.get("panel_number")
+            dialogue = dialogues[panel_number] if panel_number < len(dialogues) else ""
+            
+            manga_data.append({
+                "panel_number": panel_number,
+                "image_url": result.get("image_url"),
+                "dialogue": dialogue,
+                "error": result.get("error"),
+                "error_message": result.get("error_message", "")
+            })
+        
+        print(f"Completed generating {len(manga_data)} manga panels")
+        return manga_data
+        
+    except Exception as e:
+        print(f"Error in generate_manga_panels_with_dalle: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+# Add this function to your code for handling rate limit errors with exponential backoff
+
+def retry_with_backoff(func, panel, max_retries=3, base_delay=60):
+    """Retry a function with exponential backoff for rate limit errors"""
+    for attempt in range(max_retries):
+        result = func(panel)
+        
+        # If successful or not a rate limit error, return the result
+        if not result.get("error") or result.get("error") != "rate_limit_exceeded":
+            return result
+        
+        # Calculate delay with exponential backoff (60s, 120s, 240s, etc.)
+        delay = base_delay * (2 ** attempt)
+        print(f"Rate limit exceeded. Retrying in {delay} seconds (attempt {attempt + 1}/{max_retries})...")
+        
+        import time
+        time.sleep(delay)
+    
+    # If we've exhausted all retries, return the last result
+    return result
+
+@app.route('/retry_panel_image', methods=['POST'])
+def retry_panel_image():
+    try:
+        if 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        data = request.json
+        panel_number = data.get('panel_number')
+        script = data.get('script')
+        
+        if panel_number is None or script is None:
+            return jsonify({'error': 'Missing panel number or script'}), 400
+        
+        user_id = session['user']['id']
+        
+        # Get the user's characters for context
+        supabase_client = get_authenticated_supabase(user_id)
+        characters = []
+        
+        # Get main character
+        main_char_result = supabase_client.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', True).execute()
+        if main_char_result.data:
+            characters.append(main_char_result.data[0])
+        
+        # Get supporting characters
+        supporting_chars_result = supabase_client.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', False).execute()
+        if supporting_chars_result.data:
+            characters.extend(supporting_chars_result.data)
+        
+        # Process the script again to get panel data
+        # Note: For efficiency, you might want to store this data in the session instead
+        manga_data = process_script_with_gpt4o(script, characters)
+        
+        if not manga_data:
+            return jsonify({'error': 'Failed to process script'}), 500
+        
+        panels = manga_data.get('panels', [])
+        dialogues = manga_data.get('dialogues', [])
+        
+        # Get the specific panel to retry
+        if panel_number >= len(panels):
+            return jsonify({'error': 'Invalid panel number'}), 400
+        
+        panel = panels[panel_number]
+        panel['panel_number'] = panel_number
+        
+        # Create a sanitized prompt if the previous error was content policy violation
+        if data.get('error') == 'content_policy_violation':
+            # Simplify the description to avoid policy violations
+            original_description = panel.get('description', '')
+            panel['description'] = "A manga scene with characters in conversation. " + \
+                                  original_description.split('.')[0]  # Use just the first sentence
+        
+        # Generate the image for this panel
+        result = generate_panel_image(panel)
+        
+        if result and result.get('image_url'):
+            return jsonify({
+                'success': True,
+                'panel': {
+                    'panel_number': panel_number,
+                    'image_url': result.get('image_url'),
+                    'dialogue': dialogues[panel_number] if panel_number < len(dialogues) else ''
+                }
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': result.get('error_message', 'Failed to generate image')
+            })
+    
+    except Exception as e:
+        print(f"Error retrying panel image: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Error: {str(e)}'}), 500
+
+# Helper function from the previous implementation
+def generate_panel_image(panel):
+    try:
+        panel_number = panel.get("panel_number")
+        description = panel.get("description", "")
+        
+        # Build the prompt by combining panel description with character descriptions
+        prompt_parts = [description]
+        
+        # Add character descriptions if available
+        for key, value in panel.items():
+            if key not in ["description", "panel_number"] and isinstance(value, str):
+                prompt_parts.append(f"{key}: {value}")
+        
+        # Combine into a final prompt with manga style instructions
+        prompt = "Create a BLACK AND WHITE ONLY image in a MANGA style. " + \
+                 "The image should look like it was SKETCHED with pen and ink, with strong lines and contrasts. " + \
+                 "Scene: " + " ".join(prompt_parts)
+        
+        # Limit prompt to a reasonable length for DALL-E
+        if len(prompt) > 3800:  # DALL-E has a limit around 4000 chars
+            prompt = prompt[:3800]
+        
+        print(f"Generating image for panel {panel_number}...")
+        print(f"Prompt (truncated): {prompt[:200]}...")
+        
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json"
+        }
         
         payload = {
             "model": "dall-e-3",
-            "prompt": dall_e_prompt,
+            "prompt": prompt,
             "n": 1,
             "size": "1024x1024",
-            "quality": "standard"
+            "quality": "standard",
+            "style": "vivid"  # Using vivid for more dramatic manga-like imagery
         }
         
-        response = requests.post("https://api.openai.com/v1/images/generations", headers=headers, json=payload)
+        response = requests.post(
+            "https://api.openai.com/v1/images/generations",
+            headers=headers,
+            json=payload
+        )
+        
+        if response.status_code != 200:
+            error_data = response.json().get('error', {})
+            error_code = error_data.get('code', '')
+            error_message = error_data.get('message', response.text)
+            
+            print(f"Error generating image for panel {panel_number}: {error_message}")
+            
+            return {
+                "panel_number": panel_number,
+                "image_url": None,
+                "error": error_code,
+                "error_message": error_message
+            }
+        
         result = response.json()
-        
-        if 'error' in result:
-            error_message = result['error']['message']
-            return None, f"DALL-E API Error: {error_message}"
-        
         image_url = result['data'][0]['url']
-        return image_url, None
         
+        print(f"Successfully generated image for panel {panel_number}")
+        
+        return {
+            "panel_number": panel_number,
+            "image_url": image_url,
+            "error": None
+        }
+    
     except Exception as e:
-        return None, f"Error generating character image: {str(e)}"
-
-
+        print(f"Error generating image for panel {panel_number}: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "panel_number": panel.get("panel_number"),
+            "image_url": None,
+            "error": "exception",
+            "error_message": str(e)
+        }
+    
 @app.route('/process_image', methods=['POST'])
 def process_image():
     try:

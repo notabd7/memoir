@@ -16,60 +16,78 @@ document.addEventListener('DOMContentLoaded', function() {
     // Check if user already has a character
     const existingCharacter = document.querySelector('.existing-character');
     const characterCreation = document.querySelector('.character-creation');
+    // Manga generation elements
+    const generateMangaBtn = document.getElementById('generate-manga-btn');
+    const dayScriptInput = document.getElementById('day-script');
+    const mangaProcessingIndicator = document.getElementById('manga-processing-indicator');
+    const mangaResult = document.getElementById('manga-result');
+    const mangaPanels = document.getElementById('manga-panels');
+    const viewFullMangaBtn = document.getElementById('view-full-manga');
 
     let stream = null;
     let imageCapture = null;
     let photoBlob = null;
 
-// Add this to your dashboard.js and people.js files
-
-// Function to refresh signed URLs for images
-async function refreshSignedUrls() {
-    // Find all images with URLs that contain "sign" (indicating a signed URL)
-    const images = document.querySelectorAll('img[src*="sign"]');
+    // Add a new button for generating images
+    const generateImagesBtn = document.createElement('button');
+    generateImagesBtn.id = 'generate-images-btn';
+    generateImagesBtn.className = 'action-button';
+    generateImagesBtn.style.display = 'none';
+    generateImagesBtn.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <polyline points="21 15 16 10 5 21"></polyline>
+        </svg>
+        Generate Images
+    `;
     
-    for (const img of images) {
-        const currentSrc = img.src;
-        // Extract the path from the URL (everything after the bucket name)
-        const pathMatch = currentSrc.match(/character-images\/(.+?)(\?|$)/);
+    // Insert the button before view-full-manga button
+    if (viewFullMangaBtn) {
+        viewFullMangaBtn.parentNode.insertBefore(generateImagesBtn, viewFullMangaBtn);
+    }
+
+    // Function to refresh signed URLs for images
+    async function refreshSignedUrls() {
+        // Find all images with URLs that contain "sign" (indicating a signed URL)
+        const images = document.querySelectorAll('img[src*="sign"]');
         
-        if (pathMatch && pathMatch[1]) {
-            const path = pathMatch[1];
+        for (const img of images) {
+            const currentSrc = img.src;
+            // Extract the path from the URL (everything after the bucket name)
+            const pathMatch = currentSrc.match(/character-images\/(.+?)(\?|$)/);
             
-            try {
-                const response = await fetch('/get-signed-image-url', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ path })
-                });
+            if (pathMatch && pathMatch[1]) {
+                const path = pathMatch[1];
                 
-                const result = await response.json();
-                
-                if (result.url) {
-                    img.src = result.url;
+                try {
+                    const response = await fetch('/get-signed-image-url', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ path })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.url) {
+                        img.src = result.url;
+                    }
+                } catch (error) {
+                    console.error('Error refreshing image URL:', error);
                 }
-            } catch (error) {
-                console.error('Error refreshing image URL:', error);
             }
         }
     }
-}
 
-// Refresh URLs on page load
-document.addEventListener('DOMContentLoaded', function() {
+    // Refresh URLs on page load
     refreshSignedUrls();
     
     // Refresh URLs every 10 minutes
     setInterval(refreshSignedUrls, 600000);
-});
 
-
-    // Add this to the beginning of dashboard.js
-document.addEventListener('DOMContentLoaded', function() {
-    
-    
+    // Check for existing character
     if (existingCharacter) {
         // Initially hide the character creation elements
         cameraPreview.style.display = 'none';
@@ -89,7 +107,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Start camera for new users
         initCamera();
     }
-});
+
     // Initialize camera
     async function initCamera() {
         try {
@@ -118,9 +136,6 @@ document.addEventListener('DOMContentLoaded', function() {
             `;
         }
     }
-    
-    // Start camera when page loads
-    initCamera();
     
     // Take photo
     cameraButton.addEventListener('click', async () => {
@@ -177,114 +192,372 @@ document.addEventListener('DOMContentLoaded', function() {
             reader.readAsDataURL(photoBlob);
         }
     });
-    
-// Update the submitButton event listener in dashboard.js
-submitButton.addEventListener('click', async () => {
-    if (!photoBlob) return;
-    
-    // Show processing indicator
-    capturedImageContainer.style.display = 'none';
-    retryButton.style.display = 'none';
-    submitButton.style.display = 'none';
-    processingIndicator.style.display = 'block';
-    processingIndicator.querySelector('p').textContent = 'Analyzing your image...';
-    
-    // Create form data
-    const formData = new FormData();
-    formData.append('image', photoBlob);
-    
-    try {
-        // Step 1: Get description from image
-        const response = await fetch('/process_image', {
-            method: 'POST',
-            body: formData
+
+    // Check if elements exist (they might not be loaded yet in some views)
+    if (generateMangaBtn) {
+        console.log("Found generate manga button");
+        
+        // Generate manga button click handler
+        generateMangaBtn.addEventListener('click', async function() {
+            console.log("Generate manga button clicked");
+            const script = dayScriptInput.value.trim();
+            
+            if (!script) {
+                alert('Please enter a description of your day to generate a manga.');
+                return;
+            }
+            
+            // Show processing indicator
+            mangaProcessingIndicator.style.display = 'block';
+            mangaResult.style.display = 'none';
+            generateImagesBtn.style.display = 'none';
+            
+            try {
+                // Send script to backend
+                const response = await fetch('/generate_manga', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        script: script,
+                        generate_images: false  // Don't generate images yet
+                    })
+                });
+                
+                const result = await response.json();
+                
+                // Hide processing indicator
+                mangaProcessingIndicator.style.display = 'none';
+                
+                if (result.error) {
+                    alert('Error: ' + result.error);
+                    return;
+                }
+                
+                // Display manga panels preview
+                displayMangaPanels(result.panels, result.dialogues);
+                
+                // Show result and generate images button
+                mangaResult.style.display = 'block';
+                generateImagesBtn.style.display = 'inline-block';
+                
+            } catch (error) {
+                console.error('Error generating manga:', error);
+                mangaProcessingIndicator.style.display = 'none';
+                alert('Error generating manga. Please try again.');
+            }
         });
+    } else {
+        console.log("Generate manga button not found");
+    }
+    
+    // Generate images button click handler
+    if (generateImagesBtn) {
+        generateImagesBtn.addEventListener('click', async function() {
+            // Show processing indicator
+            mangaProcessingIndicator.style.display = 'block';
+            mangaProcessingIndicator.querySelector('p').textContent = 'Generating manga images...';
+            generateImagesBtn.style.display = 'none';
+            
+            try {
+                const script = dayScriptInput.value.trim();
+                
+                // Send request to generate images
+                const response = await fetch('/generate_manga', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        script: script,
+                        generate_images: true  // Generate images this time
+                    })
+                });
+                
+                const result = await response.json();
+                
+                // Hide processing indicator
+                mangaProcessingIndicator.style.display = 'none';
+                
+                if (result.error) {
+                    alert('Error: ' + result.error);
+                    return;
+                }
+                
+                // Display manga panels with actual images
+                displayMangaImages(result.manga_panels);
+                
+                // Show result
+                mangaResult.style.display = 'block';
+                
+            } catch (error) {
+                console.error('Error generating manga images:', error);
+                mangaProcessingIndicator.style.display = 'none';
+                alert('Error generating manga images. Please try again.');
+                // Show the generate images button again so user can retry
+                generateImagesBtn.style.display = 'inline-block';
+            }
+        });
+    }
+    
+    // Function to display manga panels (without images)
+    function displayMangaPanels(panels, dialogues) {
+        // Clear previous panels
+        mangaPanels.innerHTML = '';
         
-        const result = await response.json();
-        
-        if (result.error) {
-            alert('Error: ' + result.error);
-            processingIndicator.style.display = 'none';
-            retryButton.style.display = 'inline';
-            return;
+        // For now, show placeholders for the first 4 panels (first page)
+        // In a real implementation, you would display actual images once generated
+        for (let i = 0; i < Math.min(4, panels.length); i++) {
+            const panel = panels[i];
+            const dialogue = dialogues[i];
+            
+            const panelElement = document.createElement('div');
+            panelElement.className = 'manga-panel';
+            
+            panelElement.innerHTML = `
+                <div class="panel-image-container">
+                    <div class="placeholder-panel">Panel ${i+1}</div>
+                </div>
+                <div class="panel-dialogue">${dialogue}</div>
+            `;
+            
+            mangaPanels.appendChild(panelElement);
         }
         
-        // Display character description
-        characterDescription.textContent = result.description;
-        characterResult.style.display = 'block';
+        // Store all panels data in data attributes for later use
+        mangaPanels.dataset.panels = JSON.stringify(panels);
+        mangaPanels.dataset.dialogues = JSON.stringify(dialogues);
+    }
+    
+    // Function to display manga panels with actual images
+    function displayMangaImages(mangaPanels) {
+        // Clear previous panels
+        document.getElementById('manga-panels').innerHTML = '';
         
-        // Step 2: Generate character image from description
-        processingIndicator.querySelector('p').textContent = 'Creating your manga character...';
-        
-        const imageResponse = await fetch('/generate_character', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                description: result.description
-            })
-        });
-        
-        const imageResult = await imageResponse.json();
-        
-        // Hide processing indicator
-        processingIndicator.style.display = 'none';
-        
-        if (imageResult.error) {
-            alert('Error generating image: ' + imageResult.error);
-            return;
+        // Display first 4 panels (first page)
+        for (let i = 0; i < Math.min(4, mangaPanels.length); i++) {
+            const panel = mangaPanels[i];
+            
+            const panelElement = document.createElement('div');
+            panelElement.className = 'manga-panel';
+            
+            // Check if image was generated successfully
+            if (panel.image_url) {
+                panelElement.innerHTML = `
+                    <div class="panel-image-container">
+                        <img src="${panel.image_url}" alt="Panel ${panel.panel_number + 1}" class="panel-image">
+                    </div>
+                    <div class="panel-dialogue">${panel.dialogue}</div>
+                `;
+            } else {
+                // Fallback if image generation failed
+                panelElement.innerHTML = `
+                    <div class="panel-image-container">
+                        <div class="placeholder-panel">Panel ${panel.panel_number + 1} (Image failed)</div>
+                    </div>
+                    <div class="panel-dialogue">${panel.dialogue}</div>
+                `;
+            }
+            
+            document.getElementById('manga-panels').appendChild(panelElement);
         }
         
-        // Display generated character image
-        document.getElementById('character-image').src = imageResult.image_url;
-        document.getElementById('character-image-result').style.display = 'block';
+        // Store the manga panels data for later use
+        document.getElementById('manga-panels').dataset.mangaPanels = JSON.stringify(mangaPanels);
+    }
+    
+    // View full manga button click handler
+    if (viewFullMangaBtn) {
+        viewFullMangaBtn.addEventListener('click', function() {
+            // Check if we have manga panels with images
+            const mangaPanelsData = document.getElementById('manga-panels').dataset.mangaPanels;
+            
+            if (mangaPanelsData) {
+                const mangaPanels = JSON.parse(mangaPanelsData);
+                showFullManga(mangaPanels);
+            } else {
+                // If we only have panel data without images
+                const panels = JSON.parse(document.getElementById('manga-panels').dataset.panels || '[]');
+                const dialogues = JSON.parse(document.getElementById('manga-panels').dataset.dialogues || '[]');
+                alert(`Full manga would display all ${panels.length} panels. This feature is coming soon! You need to generate images first.`);
+            }
+        });
+    }
+    
+    // Function to show the full manga in a modal
+    function showFullManga(mangaPanels) {
+        // Create a modal to display all panels
+        const modal = document.createElement('div');
+        modal.className = 'manga-modal';
+        modal.innerHTML = `
+            <div class="manga-modal-content">
+                <span class="manga-close-button">&times;</span>
+                <h2>Your Manga Story</h2>
+                <div class="manga-pages"></div>
+            </div>
+        `;
         
-        // Step 3: Save main character to database
+        document.body.appendChild(modal);
+        
+        // Create pages (4 panels per page)
+        const pagesContainer = modal.querySelector('.manga-pages');
+        
+        for (let i = 0; i < mangaPanels.length; i += 4) {
+            const pageDiv = document.createElement('div');
+            pageDiv.className = 'manga-page';
+            
+            // Add up to 4 panels for this page
+            for (let j = i; j < Math.min(i + 4, mangaPanels.length); j++) {
+                const panel = mangaPanels[j];
+                
+                const panelDiv = document.createElement('div');
+                panelDiv.className = 'manga-panel-full';
+                
+                if (panel.image_url) {
+                    panelDiv.innerHTML = `
+                        <div class="panel-image-container-full">
+                            <img src="${panel.image_url}" alt="Panel ${panel.panel_number + 1}" class="panel-image">
+                        </div>
+                        <div class="panel-dialogue-full">${panel.dialogue}</div>
+                    `;
+                } else {
+                    panelDiv.innerHTML = `
+                        <div class="panel-image-container-full">
+                            <div class="placeholder-panel">Panel ${panel.panel_number + 1} (Image failed)</div>
+                        </div>
+                        <div class="panel-dialogue-full">${panel.dialogue}</div>
+                    `;
+                }
+                
+                pageDiv.appendChild(panelDiv);
+            }
+            
+            pagesContainer.appendChild(pageDiv);
+        }
+        
+        // Show the modal
+        modal.style.display = 'flex';
+        
+        // Close button functionality
+        modal.querySelector('.manga-close-button').addEventListener('click', function() {
+            document.body.removeChild(modal);
+        });
+        
+        // Click outside to close
+        window.addEventListener('click', function(event) {
+            if (event.target === modal) {
+                document.body.removeChild(modal);
+            }
+        });
+    }
+    
+    // Submit button event listener for character creation
+    submitButton.addEventListener('click', async () => {
+        if (!photoBlob) return;
+        
+        // Show processing indicator
+        capturedImageContainer.style.display = 'none';
+        retryButton.style.display = 'none';
+        submitButton.style.display = 'none';
+        processingIndicator.style.display = 'block';
+        processingIndicator.querySelector('p').textContent = 'Analyzing your image...';
+        
+        // Create form data
+        const formData = new FormData();
+        formData.append('image', photoBlob);
+        
         try {
-            const saveResponse = await fetch('/save_main_character', {
+            // Step 1: Get description from image
+            const response = await fetch('/process_image', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const result = await response.json();
+            
+            if (result.error) {
+                alert('Error: ' + result.error);
+                processingIndicator.style.display = 'none';
+                retryButton.style.display = 'inline';
+                return;
+            }
+            
+            // Display character description
+            characterDescription.textContent = result.description;
+            characterResult.style.display = 'block';
+            
+            // Step 2: Generate character image from description
+            processingIndicator.querySelector('p').textContent = 'Creating your manga character...';
+            
+            const imageResponse = await fetch('/generate_character', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
-                    imageUrl: imageResult.image_url,
                     description: result.description
                 })
             });
             
-            const saveResult = await saveResponse.json();
+            const imageResult = await imageResponse.json();
             
-            if (saveResult.error) {
-                console.error('Error saving character:', saveResult.error);
-                alert('Error saving your character: ' + saveResult.error);
-            } else {
-                console.log('Character saved successfully!');
-                
-                // Show success message
-                const successMessage = document.createElement('div');
-                successMessage.className = 'success-message';
-                successMessage.innerHTML = `
-                    <p>Your manga character has been created successfully!</p>
-                    <button id="view-characters" class="action-button">View All Characters</button>
-                `;
-                document.getElementById('character-image-result').appendChild(successMessage);
-                
-                // Add event listener to view characters button
-                document.getElementById('view-characters').addEventListener('click', () => {
-                    window.location.href = '/people';
+            // Hide processing indicator
+            processingIndicator.style.display = 'none';
+            
+            if (imageResult.error) {
+                alert('Error generating image: ' + imageResult.error);
+                return;
+            }
+            
+            // Display generated character image
+            document.getElementById('character-image').src = imageResult.image_url;
+            document.getElementById('character-image-result').style.display = 'block';
+            
+            // Step 3: Save main character to database
+            try {
+                const saveResponse = await fetch('/save_main_character', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        imageUrl: imageResult.image_url,
+                        description: result.description
+                    })
                 });
+                
+                const saveResult = await saveResponse.json();
+                
+                if (saveResult.error) {
+                    console.error('Error saving character:', saveResult.error);
+                    alert('Error saving your character: ' + saveResult.error);
+                } else {
+                    console.log('Character saved successfully!');
+                    
+                    // Show success message
+                    const successMessage = document.createElement('div');
+                    successMessage.className = 'success-message';
+                    successMessage.innerHTML = `
+                        <p>Your manga character has been created successfully!</p>
+                        <button id="view-characters" class="action-button">View All Characters</button>
+                    `;
+                    document.getElementById('character-image-result').appendChild(successMessage);
+                    
+                    // Add event listener to view characters button
+                    document.getElementById('view-characters').addEventListener('click', () => {
+                        window.location.href = '/people';
+                    });
+                }
+            } catch (error) {
+                console.error('Error saving character:', error);
+                alert('Error saving your character. Please try again.');
             }
         } catch (error) {
-            console.error('Error saving character:', error);
-            alert('Error saving your character. Please try again.');
+            console.error('Error processing image:', error);
+            processingIndicator.style.display = 'none';
+            alert('Error processing your image. Please try again.');
+            retryButton.style.display = 'inline';
         }
-    } catch (error) {
-        console.error('Error processing image:', error);
-        processingIndicator.style.display = 'none';
-        alert('Error processing your image. Please try again.');
-        retryButton.style.display = 'inline';
-    }
-});
-
+    });
 });

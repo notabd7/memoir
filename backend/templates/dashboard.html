@@ -1,6 +1,9 @@
 <!-- templates/dashboard.html -->
 <!DOCTYPE html>
 <html>
+<head>
+    <title>Manga Creator - Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <style>
         .existing-character {
             background-color: white;
@@ -15,6 +18,7 @@
             max-width: 300px;
             margin: 0 auto 15px;
         }
+        
         .success-message {
             margin-top: 20px;
             padding: 15px;
@@ -28,30 +32,26 @@
             font-weight: bold;
             color: #34A853;
         }
-        </style>
-<head>
-    <title>Manga Creator - Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    </style>
 </head>
 <body>
     <div class="container">
-        <!-- Add this to the header in dashboard.html -->
-<header>
-    <h1>Hello, {{ user.name }}!</h1>
-    <div class="header-actions">
-        <a href="{{ url_for('people') }}" class="action-button people-button">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                <circle cx="9" cy="7" r="4"></circle>
-                <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-            </svg>
-            Manage Characters
-        </a>
-        <img src="{{ user.profile_picture }}" alt="Profile Picture" class="profile-picture">
-        <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
-    </div>
-</header>
+        <header>
+            <h1>Hello, {{ user.name }}!</h1>
+            <div class="header-actions">
+                <a href="{{ url_for('people') }}" class="action-button people-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="9" cy="7" r="4"></circle>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                    </svg>
+                    Manage Characters
+                </a>
+                <img src="{{ user.profile_picture }}" alt="Profile Picture" class="profile-picture">
+                <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+            </div>
+        </header>
         
         <main>
             <section class="manga-creation">
@@ -112,6 +112,40 @@
                         </div>
                         <button id="download-image" class="action-button">Download Image</button>
                     </div>
+                </div>
+            </section>
+            
+            <!-- Manga script section -->
+            <section class="manga-script-section" style="margin-top: 30px;">
+                <h2>Create Manga from Your Day</h2>
+                <p>Enter a script describing your day, and we'll transform it into a manga storyline.</p>
+                
+                <div class="script-input-container">
+                    <textarea id="day-script" class="script-textarea" 
+                        placeholder="Describe your day here. Include what happened, who you interacted with, and any memorable moments..."
+                        rows="6"></textarea>
+                    
+                    <button id="generate-manga-btn" class="action-button">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"></path>
+                            <path d="M12 8v8"></path>
+                            <path d="M8 12h8"></path>
+                        </svg>
+                        Generate Manga
+                    </button>
+                </div>
+                
+                <div id="manga-processing-indicator" class="processing-indicator" style="display:none;">
+                    <p>Creating your manga storyline...</p>
+                    <div class="spinner"></div>
+                </div>
+                
+                <div id="manga-result" class="manga-result" style="display:none;">
+                    <h3>Your Manga Storyline</h3>
+                    <div id="manga-panels" class="manga-panels">
+                        <!-- Manga panels will be displayed here -->
+                    </div>
+                    <button id="view-full-manga" class="action-button">View Full Manga</button>
                 </div>
             </section>
         </main>
