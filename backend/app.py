@@ -822,6 +822,7 @@ def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None)
         return None
 
 
+
 @app.route('/get-signed-image-url', methods=['POST'])
 def get_signed_image_url():
     if 'user' not in session:
