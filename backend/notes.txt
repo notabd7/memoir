@@ -39,7 +39,11 @@ status 3/31
 images uploaded tested and done
 character images not in db test them
 images not being populated on profile cards
-get these done
+get these done 
+
+got them done lfg
+
+
 next steps
 given a script of the whole day,
 gpt4-o takes it and develops a 3 page (4-5 panels on each)

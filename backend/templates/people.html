@@ -36,21 +36,27 @@
                 
                 <div class="people-grid">
                     {% if people %}
-                        {% for person in people %}
-                            <div class="person-card">
-                                <div class="character-image-container">
-                                    <img src="{{ person.imageUrl }}" alt="{{ person.name }}">
-                                </div>
-                                <h3>{{ person.name }}</h3>
-                                <button class="delete-button" data-id="{{ person.id }}">Delete</button>
-                            </div>
-                        {% endfor %}
-                    {% else %}
-                        <div class="empty-state">
-                            <p>You haven't added any characters yet.</p>
-                            <p>Click "Add Character" to create your first character!</p>
-                        </div>
-                    {% endif %}
+    {% for person in people %}
+        <div class="person-card">
+            <div class="character-image-container">
+                {% if person.image_url %}
+                    <img src="{{ person.image_url }}" alt="{{ person.name }}">
+                {% else %}
+                    <img src="{{ person.image_url }}" alt="{{ person.name }}">
+                {% endif %}
+            </div>
+            <h3>{{ person.name }}</h3>
+            {% if person.id != 'main' %}
+                <button class="delete-button" data-id="{{ person.id }}">Delete</button>
+            {% endif %}
+        </div>
+    {% endfor %}
+{% else %}
+    <div class="empty-state">
+        <p>You haven't added any characters yet.</p>
+        <p>Click "Add Character" to create your first character!</p>
+    </div>
+{% endif %}
                 </div>
             </section>
         </main>

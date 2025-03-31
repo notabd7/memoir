@@ -111,41 +111,54 @@ def supabase_credentials():
         'url': os.getenv('SUPABASE_URL'),
         'key': os.getenv('SUPABASE_KEY')
     })
+
 @app.route('/')
 def index():
     if 'user' not in session:
         return render_template('login.html')
     
-    # Get user's main character if exists
     user_id = session['user']['id']
-    main_character = None
+    user_data = session['user'].copy()  # Start with session data
     
     try:
         # Get authenticated client
         supabase_client = get_authenticated_supabase(user_id)
         
-        # First check characters table
-        main_result = supabase_client.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', True).execute()
+        # Get user data including main character info
+        user_result = supabase_client.table('users').select('*').eq('id', user_id).execute()
         
-        if main_result.data:
-            main_character = main_result.data[0]
-        else:
-            # Check users table
-            user_result = supabase_client.table('users').select('main_character_url, main_character_description').eq('id', user_id).execute()
+        if user_result.data:
+            # Add database user data to session user data
+            for key, value in user_result.data[0].items():
+                user_data[key] = value
+                
+            print(f"Combined user data: {user_data}")
             
-            if user_result.data and user_result.data[0].get('main_character_url'):
-                main_character = {
-                    'image_url': user_result.data[0].get('main_character_url'),
-                    'description': user_result.data[0].get('main_character_description')
-                }
-        
-        print(f"Found main character: {main_character}")
+            # If user has a main character URL, ensure it's fresh
+            if user_data.get('main_character_url') and 'sign' in user_data.get('main_character_url', ''):
+                # Try to create a fresh signed URL
+                try:
+                    main_file_path = f"{user_id}/main.png"
+                    signed_url = supabase_client.storage.from_('character-images').create_signed_url(
+                        path=main_file_path,
+                        expires_in=3600  # 1 hour
+                    )
+                    
+                    if isinstance(signed_url, dict) and 'signedURL' in signed_url:
+                        user_data['main_character_url'] = signed_url['signedURL']
+                except Exception as url_error:
+                    print(f"Error creating fresh signed URL for main character: {url_error}")
+            
     except Exception as e:
-        print(f"Error fetching main character: {e}")
+        print(f"Error fetching user data: {e}")
         import traceback
         traceback.print_exc()
     
-    return render_template('dashboard.html', user=session['user'], main_character=main_character)
+    # Check if main character exists
+    has_main_character = user_data and user_data.get('main_character_url') and user_data.get('main_character_description')
+    
+    return render_template('dashboard.html', user=user_data, has_main_character=has_main_character)
+
 @app.route('/login')
 def login():
     return render_template('login.html')
@@ -203,7 +216,8 @@ def auth():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-    
+
+
 def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None):
     try:
         # Get authenticated Supabase client
@@ -275,17 +289,69 @@ def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None)
                 else:
                     raise upload_error
         
-        # Get the public URL - use authenticated client
-        public_url = supabase_client.storage.from_('character-images').get_public_url(file_path)
-        print(f"Generated public URL: {public_url}")
-        return public_url
+        # Get the authenticated URL - using the signed URL method for private buckets
+        try:
+            # First, try to get a signed URL with a long expiration (1 week)
+            signed_url = supabase_client.storage.from_('character-images').create_signed_url(
+                path=file_path,
+                expires_in=604800  # 7 days in seconds
+            )
+            print(f"Generated signed URL: {signed_url}")
+            
+            if isinstance(signed_url, dict) and 'signedURL' in signed_url:
+                return signed_url['signedURL']
+            else:
+                # If signedURL not in expected format, create a placeholder URL for now
+                # This URL will need to be refreshed on the client side
+                return f"{SUPABASE_URL}/storage/v1/object/sign/character-images/{file_path}?token=sessionToken"
+                
+        except Exception as url_error:
+            print(f"Error creating signed URL: {url_error}")
+            # Fallback to creating a placeholder URL structure
+            return f"{SUPABASE_URL}/storage/v1/object/sign/character-images/{file_path}?token=sessionToken"
         
     except Exception as e:
         print(f"Error saving image to Supabase: {e}")
         import traceback
         traceback.print_exc()
         return None
+
+
+@app.route('/get-signed-image-url', methods=['POST'])
+def get_signed_image_url():
+    if 'user' not in session:
+        return jsonify({'error': 'Not logged in'}), 401
     
+    data = request.json
+    path = data.get('path')
+    
+    if not path:
+        return jsonify({'error': 'No path provided'}), 400
+    
+    user_id = session['user']['id']
+    
+    try:
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Create a new signed URL with a 15-minute expiration
+        signed_url = supabase_client.storage.from_('character-images').create_signed_url(
+            path=path,
+            expires_in=900  # 15 minutes in seconds
+        )
+        
+        if isinstance(signed_url, dict) and 'signedURL' in signed_url:
+            return jsonify({'url': signed_url['signedURL']})
+        else:
+            return jsonify({'error': 'Failed to generate signed URL'}), 500
+            
+    except Exception as e:
+        print(f"Error generating signed URL: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to generate signed URL: {str(e)}'}), 500
+    
+
+
 # @app.route('/test_storage_upload', methods=['GET'])
 # def test_storage_upload():
 #     try:
@@ -466,7 +532,6 @@ def add_person():
         image = request.files['image']
         user_id = session['user']['id']
         
-        
         # Get authenticated client
         supabase_client = get_authenticated_supabase(user_id)
         
@@ -474,6 +539,7 @@ def add_person():
         if not ensure_user_exists(user_id, supabase_client):
             return jsonify({'error': 'Failed to ensure user exists in database'}), 500
         
+        # Step 1: Generate description from the uploaded image
         print("Generating description from image...")
         image.seek(0)  # Reset file pointer for reading
         description, error = process_image_with_gpt4o(image)
@@ -487,6 +553,7 @@ def add_person():
         
         if error:
             return jsonify({'error': f'Failed to generate character image: {error}'}), 500
+        
         # Generate an ID for the character
         character_id = str(uuid.uuid4())
         
@@ -497,10 +564,9 @@ def add_person():
         if len(character_count.data) >= 5:
             return jsonify({'error': 'You can only add up to 5 supporting characters. Please delete some to add more.'}), 400
         
-        # Save the uploaded image to Supabase Storage
-        image.seek(0)  # Reset file pointer to beginning
+        # Save the AI-generated image to Supabase Storage
         supabase_image_url = save_image_to_supabase(
-            image, 
+            image_url,  # Use the DALL-E generated image URL instead of the uploaded image
             user_id, 
             is_main=False, 
             character_id=character_id
@@ -514,7 +580,7 @@ def add_person():
             'id': character_id,
             'user_id': user_id,
             'name': name,
-            'image_url': supabase_image_url,
+            'image_url': supabase_image_url,  # Make sure this matches the template's expected property name
             'description': description,
             'is_main_character': False
         }
@@ -532,7 +598,6 @@ def add_person():
         traceback.print_exc()
         return jsonify({'error': f'Failed to add character: {str(e)}'}), 500
     
-
 @app.route('/delete_person', methods=['POST'])
 def delete_person():
     try:
@@ -570,6 +635,8 @@ def delete_person():
     except Exception as e:
         print(f"Error deleting character: {e}")
         return jsonify({'error': f'Failed to delete character: {str(e)}'}), 500       
+
+
 @app.route('/people')
 def people():
     if 'user' not in session:
@@ -583,12 +650,24 @@ def people():
         # Get authenticated client
         supabase_client = get_authenticated_supabase(user_id)
         
-        # Get all characters including main character
-        result = supabase_client.table('characters').select('*').eq('user_id', user_id).order('is_main_character', desc=True).execute()
-        characters = result.data
+        # Get all non-main characters first
+        regular_chars_result = supabase_client.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', False).execute()
         
-        # If no characters found, check if the user has a main character in users table
-        if not characters:
+        # Print for debugging
+        print(f"Retrieved regular characters: {regular_chars_result.data}")
+        
+        if regular_chars_result.data:
+            characters.extend(regular_chars_result.data)
+        
+        # Get main character (either from characters table or users table)
+        main_char_result = supabase_client.table('characters').select('*').eq('user_id', user_id).eq('is_main_character', True).execute()
+        
+        if main_char_result.data:
+            # If main character exists in characters table
+            print(f"Main character found in characters table: {main_char_result.data[0]}")
+            characters.insert(0, main_char_result.data[0])  # Add main character to the beginning
+        else:
+            # Try to get main character from users table
             user_info = supabase_client.table('users').select('main_character_url, main_character_description').eq('id', user_id).execute()
             
             if user_info.data and user_info.data[0].get('main_character_url'):
@@ -600,13 +679,16 @@ def people():
                     'description': user_info.data[0].get('main_character_description'),
                     'is_main_character': True
                 }
-                characters.append(main_char)
+                print(f"Main character created from user data: {main_char}")
+                characters.insert(0, main_char)  # Add main character to the beginning
     except Exception as e:
         print(f"Error fetching characters: {e}")
         import traceback
         traceback.print_exc()
     
     return render_template('people.html', user=session['user'], people=characters)
+
+
 def process_image_with_gpt4o(image):
     """Process an image with GPT-4o and return the description"""
     try:

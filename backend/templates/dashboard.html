@@ -77,17 +77,17 @@
                             <button id="retry-button" class="action-button" style="display:none;">Retry</button>
                             <button id="submit-button" class="action-button" style="display:none;">Use This Photo</button>
                         </div>
-                       <!-- Modify this part in dashboard.html -->
-{% if main_character %}
-<div class="existing-character">
-    <h3>Your Current Manga Character:</h3>
-    <div class="character-image-container">
-        <img src="{{ main_character.image_url }}" alt="Your character">
-    </div>
-    <p><em>{{ main_character.description|truncate(100) }}</em></p>
-    <button id="create-new-character" class="action-button">Create New Character</button>
-</div>
-{% endif %}
+                       
+                        {% if has_main_character %}
+                        <div class="existing-character">
+                            <h3>Your Current Manga Character:</h3>
+                            <div class="character-image-container">
+                                <img src="{{ user.main_character_url }}" alt="Your character">
+                            </div>
+                            <p><em>{{ user.main_character_description|truncate(100) }}</em></p>
+                            <button id="create-new-character" class="action-button">Create New Character</button>
+                        </div>
+                        {% endif %}
                         
                         <div class="upload-alternative">
                             <p>Or upload an image:</p>
