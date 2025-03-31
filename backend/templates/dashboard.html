@@ -1,6 +1,21 @@
 <!-- templates/dashboard.html -->
 <!DOCTYPE html>
 <html>
+    <style>
+        .existing-character {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .existing-character .character-image-container {
+            max-width: 300px;
+            margin: 0 auto 15px;
+        }
+        </style>
 <head>
     <title>Manga Creator - Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -49,6 +64,16 @@
                             <button id="retry-button" class="action-button" style="display:none;">Retry</button>
                             <button id="submit-button" class="action-button" style="display:none;">Use This Photo</button>
                         </div>
+                        {% if main_character %}
+<div class="existing-character">
+    <h3>Your Current Manga Character:</h3>
+    <div class="character-image-container">
+        <img src="{{ main_character.image_url }}" alt="Your character">
+    </div>
+    <p><em>{{ main_character.description|truncate(100) }}</em></p>
+    <button id="create-new-character" class="action-button">Create New Character</button>
+</div>
+{% endif %}
                         
                         <div class="upload-alternative">
                             <p>Or upload an image:</p>
