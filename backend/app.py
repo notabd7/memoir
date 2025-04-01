@@ -12,6 +12,10 @@ import tempfile
 from datetime import datetime
 from supabase import create_client, Client
 from PIL import Image
+from apscheduler.schedulers.background import BackgroundScheduler
+import time
+import struct
+
 # Load environment variables
 load_dotenv()
 
@@ -82,7 +86,176 @@ def ensure_user_exists(user_id, supabase_client):
         import traceback
         traceback.print_exc()
         return False
+    
+def create_wav_file(sample_rate, audio_data):
+    """
+    Create a WAV file from raw audio bytes.
+    
+    Args:
+        sample_rate (int): Audio sample rate (e.g., 16000)
+        audio_data (bytes): Raw audio bytes from Omi device
+        
+    Returns:
+        bytes: Complete WAV file with proper headers
+    """
+    num_channels = 1  # Mono audio
+    bits_per_sample = 16
+    bytes_per_sample = bits_per_sample // 8
+    byte_rate = sample_rate * num_channels * bytes_per_sample
+    block_align = num_channels * bytes_per_sample
+    
+    # Create WAV header
+    partial_header = (
+        b'RIFF' + b'\x00\x00\x00\x00' + b'WAVE' +
+        b'fmt ' + struct.pack('<I', 16) + struct.pack('<HHIIHH', 1, num_channels, sample_rate, byte_rate, block_align, bits_per_sample) +
+        b'data' + struct.pack('<I', len(audio_data))
+    )
+    
+    # Calculate total file size and RIFF chunk size
+    total_file_size = len(partial_header) + len(audio_data)
+    riff_chunk_size = total_file_size - 8
+    
+    # Update header with correct RIFF chunk size
+    header = partial_header[:4] + struct.pack('<I', riff_chunk_size) + partial_header[8:]
+    
+    return header + audio_data
 
+@app.route('/audio_stream', methods=['POST'])
+def receive_audio():
+    """
+    Endpoint to receive audio data from Omi device.
+    Enhanced with better debugging and error handling.
+    
+    Expected query parameters:
+    - sample_rate: The audio sample rate in Hz
+    - uid: The Omi device unique identifier
+    
+    Request body contains raw audio bytes
+    """
+    # Get query parameters
+    sample_rate = int(request.args.get('sample_rate', 16000))
+    omi_uid = request.args.get('uid')
+    
+    print(f"Received audio request with sample_rate={sample_rate}, uid={omi_uid}")
+    
+    if not omi_uid:
+        print("Error: Missing uid parameter")
+        return 'Missing uid parameter', 400
+    
+    # Get audio data from request body
+    audio_data = request.data
+    
+    if not audio_data:
+        print("Error: No audio data received")
+        return 'No audio data received', 400
+    
+    print(f"Received {len(audio_data)} bytes of audio data")
+    
+    # Find user's ID based on omi_uid
+    try:
+        print(f"Querying users table for omi_uid={omi_uid}")
+        
+        # Try a case-insensitive query first
+        result = supabase.table('users').select('id, email, name').ilike('omi_uid', omi_uid).execute()
+        
+        # If no results, try with exact match
+        if not result.data:
+            print(f"No users found with case-insensitive match, trying exact match")
+            result = supabase.table('users').select('id, email, name').eq('omi_uid', omi_uid).execute()
+        
+        # Check if we have any results and print them for debugging
+        if result.data:
+            print(f"Found matching user: {result.data[0]}")
+            user_id = result.data[0]['id']
+        else:
+            # Debug: Print all users with any omi_uid value to help diagnose
+            all_users = supabase.table('users').select('id, email, name, omi_uid').not_.is_('omi_uid', None).execute()
+            print(f"No users found with omi_uid={omi_uid}. All users with omi_uid: {all_users.data}")
+            
+            # Debug: Check if column exists and table structure
+            try:
+                table_info = supabase.table('users').select('*').limit(1).execute()
+                print(f"Sample user record columns: {table_info.data[0].keys() if table_info.data else 'No users found'}")
+            except Exception as col_err:
+                print(f"Error checking table structure: {col_err}")
+            
+            return 'User not found for the provided uid', 404
+    except Exception as e:
+        print(f"Error finding user: {e}")
+        import traceback
+        traceback.print_exc()
+        return 'Error processing user information', 500
+    
+    # Create the WAV file
+    try:
+        print(f"Creating WAV file from {len(audio_data)} bytes of raw audio")
+        wav_file = create_wav_file(sample_rate, audio_data)
+        print(f"Generated WAV file of {len(wav_file)} bytes")
+    except Exception as e:
+        print(f"Error creating WAV file: {e}")
+        import traceback
+        traceback.print_exc()
+        return 'Error processing audio data', 500
+    
+    # Generate a unique filename using timestamp
+    timestamp = datetime.now().isoformat().replace(':', '-')
+    file_path = f"{user_id}/{timestamp}.wav"
+    print(f"File will be stored at: {file_path}")
+    
+    # Upload to Supabase storage
+    try:
+        # Check if bucket exists
+        try:
+            print("Checking if audio-files bucket exists")
+            bucket_info = supabase.storage.list_buckets()
+            bucket_names = [bucket.get('name') for bucket in bucket_info]
+            print(f"Available buckets: {bucket_names}")
+            
+            if 'audio-files' not in bucket_names:
+                print("WARNING: audio-files bucket doesn't exist!")
+        except Exception as bucket_err:
+            print(f"Error checking buckets: {bucket_err}")
+            
+        # Make sure the directory exists in storage
+        try:
+            print(f"Uploading file to storage at {file_path}")
+            
+            # Upload file to storage
+            upload_result = supabase.storage.from_('audio-files').upload(
+                path=file_path,
+                file=wav_file,
+                file_options={"content-type": "audio/wav"}
+            )
+            print(f"File upload successful: {upload_result}")
+        except Exception as upload_err:
+            print(f"Error uploading file: {upload_err}")
+            import traceback
+            traceback.print_exc()
+            return 'Error uploading audio file to storage', 500
+        
+        # Insert record into audio_files table
+        try:
+            print("Creating record in audio_files table")
+            insert_result = supabase.table('audio_files').insert({
+                'user_id': user_id,
+                'file_path': file_path,
+                'transcription': None,
+                'created_at': datetime.now().isoformat()
+            }).execute()
+            print(f"Record creation successful: {insert_result.data}")
+        except Exception as db_err:
+            print(f"Error creating database record: {db_err}")
+            import traceback
+            traceback.print_exc()
+            # Even if record creation fails, the file is uploaded, so don't return error
+            return 'Audio received and stored, but failed to create database record', 200
+        
+        return 'Audio received and stored successfully', 200
+    except Exception as e:
+        print(f"Unexpected error saving audio to Supabase: {e}")
+        import traceback
+        traceback.print_exc()
+        return 'Error storing audio file', 500
 @app.route('/my_mangas')
 def my_mangas():
     if 'user' not in session:
@@ -332,8 +505,84 @@ def get_authenticated_supabase(user_id=None):
         print(f"Error creating authenticated Supabase client: {e}")
         # Fall back to the default client
         return create_client(SUPABASE_URL, SUPABASE_KEY)
-    
 
+@app.route('/debug_auth', methods=['GET'])
+def debug_auth():
+    if 'user' not in session:
+        return jsonify({'status': 'Not logged in'}), 401
+    
+    user_id = session['user']['id']
+    has_token = 'supabase_token' in session and session['supabase_token']
+    has_refresh = 'supabase_refresh_token' in session and session['supabase_refresh_token']
+    
+    # Test the token
+    auth_status = 'Unknown'
+    user_data = None
+    
+    try:
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Try to get user data to verify authentication
+        if has_token:
+            try:
+                user_result = supabase_client.auth.get_user()
+                auth_status = 'Valid'
+                user_data = {
+                    'id': user_result.user.id,
+                    'email': user_result.user.email
+                }
+            except Exception as auth_err:
+                auth_status = f'Invalid: {str(auth_err)}'
+        
+        # Try to get user from database
+        try:
+            db_result = supabase_client.table('users').select('*').eq('id', user_id).execute()
+            db_access = {
+                'success': True,
+                'found': len(db_result.data) > 0,
+                'data': db_result.data[0] if db_result.data else None
+            }
+        except Exception as db_err:
+            db_access = {
+                'success': False, 
+                'error': str(db_err)
+            }
+            
+        return jsonify({
+            'user_id': user_id,
+            'has_token': has_token, 
+            'has_refresh_token': has_refresh,
+            'auth_status': auth_status,
+            'user_data': user_data,
+            'database_access': db_access
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'user_id': user_id,
+            'error': str(e),
+            'has_token': has_token,
+            'has_refresh_token': has_refresh
+        }), 500
+        
+@app.route('/debug_user', methods=['GET'])
+def debug_user():
+    """Debug endpoint to check a specific user"""
+    try:
+        # Use the specific user ID we know exists
+        user_id = "38bb84dc-bc8a-44f5-8e26-8ad312ea519a"
+        
+        # Direct query for this user
+        result = supabase.table('users').select('id, email, name, omi_uid').eq('id', user_id).execute()
+        
+        return jsonify({
+            'user_id': user_id,
+            'user_data': result.data,
+            'found': len(result.data) > 0
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # @app.route('/debug_tokens', methods=['GET'])
@@ -1156,25 +1405,19 @@ def auth():
     try:
         print("Received auth request")
         data = request.json
-        print(f"Auth data: {data}")
         
         # Extract user ID and access token from data
         user_id = data.get('id')
         access_token = data.get('access_token')
         refresh_token = data.get('refresh_token')
         
-        print(f"User ID from auth: {user_id}")
-        print(f"User ID type: {type(user_id)}")
+        if not user_id or not access_token or not refresh_token:
+            print("Missing required auth data")
+            return jsonify({'error': 'Missing required authentication data'}), 400
         
-        # Store the JWT token
-        if access_token and refresh_token:
-            session['supabase_token'] = access_token
-            session['supabase_refresh_token'] = refresh_token
-            print(f"Stored tokens - Access: {access_token[:10]}..., Refresh: {refresh_token[:10]}...")
-        else:
-            print("Missing tokens - Access:", bool(access_token), "Refresh:", bool(refresh_token))
-            
-        # Store the session data from Supabase
+        # Store tokens in session
+        session['supabase_token'] = access_token
+        session['supabase_refresh_token'] = refresh_token
         session['user'] = {
             'id': user_id,
             'email': data.get('email'),
@@ -1182,21 +1425,38 @@ def auth():
             'picture': data.get('user_metadata', {}).get('avatar_url')
         }
         
-        print(f"Session user: {session['user']}")
+        print(f"Successfully authenticated user: {user_id}")
         
-        # Get an authenticated client for database operations
+        # Create an authenticated client and ensure user exists in DB
         supabase_client = get_authenticated_supabase(user_id)
         
-        # Ensure the user exists in our database
-        ensure_user_exists(user_id, supabase_client)
-        
-        return jsonify({'success': True})
+        # Test if authentication works by getting the user's data
+        try:
+            # This query should succeed if authentication is working
+            test_result = supabase_client.auth.get_user()
+            print(f"Token verification success: {test_result.user.id}")
+            
+            # Ensure the user exists in our database
+            ensure_user_exists(user_id, supabase_client)
+            
+            return jsonify({
+                'success': True,
+                'auth_verified': True,
+                'user_id': user_id
+            })
+        except Exception as auth_error:
+            print(f"Token verification failed: {auth_error}")
+            return jsonify({
+                'success': True,  # Still consider login successful
+                'auth_verified': False,
+                'error': str(auth_error)
+            })
+            
     except Exception as e:
         print(f"Auth error: {e}")
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
-
 
 
 
@@ -2044,6 +2304,282 @@ def generate_character():
         return jsonify({'error': f'Failed to generate character image: {str(e)}'}), 500
 
 
+################TESTING@@@@@@@@@@@@
+# Add these diagnostic routes to your Flask app
+
+@app.route('/debug_omi_uid', methods=['GET'])
+def debug_omi_uid():
+    """
+    Debug endpoint to check if an Omi UID exists in the database.
+    
+    Query parameters:
+    - uid: The Omi UID to check
+    """
+    try:
+        # Get the UID to check
+        uid = request.args.get('uid')
+        if not uid:
+            return jsonify({
+                'error': 'No UID provided',
+                'usage': 'Add ?uid=YOUR_OMI_UID to the URL'
+            }), 400
+        
+        print(f"Checking for omi_uid: {uid}")
+        
+        # Use service client (not authenticated) to ensure we're not limited by RLS
+        result = supabase.table('users').select('id, email, name, omi_uid').eq('omi_uid', uid).execute()
+        
+        # Additional debug query to see all users with omi_uid set
+        all_users_with_omi = supabase.table('users').select('id, email, name, omi_uid').not_.is_('omi_uid', None).execute()
+        
+        return jsonify({
+            'query': f"omi_uid = '{uid}'",
+            'matched_users': result.data,
+            'matches_found': len(result.data),
+            'all_users_with_omi': all_users_with_omi.data,
+            'total_users_with_omi': len(all_users_with_omi.data)
+        })
+    except Exception as e:
+        print(f"Error in debug_omi_uid: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/set_omi_uid', methods=['GET', 'POST'])
+def set_omi_uid():
+    """
+    Endpoint to set the Omi UID for a user.
+    
+    GET: Show a simple form
+    POST: Process the form and update the database
+    """
+    if 'user' not in session:
+        return 'Not logged in. Please log in first.', 401
+    
+    user_id = session['user']['id']
+    
+    if request.method == 'GET':
+        # Get current omi_uid for this user
+        try:
+            supabase_client.table('users').update({'omi_uid': uid}).eq('id', user_id).execute()
+
+            result = supabase_client.table('users').select('omi_uid').eq('id', user_id).execute()
+            current_uid = result.data[0]['omi_uid'] if result.data and 'omi_uid' in result.data[0] else None
+        except Exception as e:
+            print(f"Error getting current omi_uid: {e}")
+            current_uid = None
+        
+        # Return a simple HTML form
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Set Omi UID</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                .container {{ max-width: 600px; margin: 0 auto; }}
+                .form-group {{ margin-bottom: 20px; }}
+                label {{ display: block; margin-bottom: 5px; }}
+                input[type=text] {{ width: 100%; padding: 8px; font-size: 16px; }}
+                button {{ padding: 10px 15px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }}
+                .current {{ margin-bottom: 20px; padding: 15px; background-color: #f8f8f8; border-radius: 4px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>Set Omi Device UID</h1>
+                
+                <div class="current">
+                    <h3>Current Settings</h3>
+                    <p><strong>User ID:</strong> {user_id}</p>
+                    <p><strong>Current Omi UID:</strong> {current_uid or 'Not set'}</p>
+                </div>
+                
+                <form method="POST" action="/set_omi_uid">
+                    <div class="form-group">
+                        <label for="uid">Enter your Omi device UID:</label>
+                        <input type="text" id="uid" name="uid" value="{current_uid or ''}" required>
+                    </div>
+                    <button type="submit">Save</button>
+                </form>
+            </div>
+        </body>
+        </html>
+        """
+    else:  # POST
+        uid = request.form.get('uid')
+        if not uid:
+            return 'No UID provided', 400
+        
+        try:
+            print(f"Setting omi_uid={uid} for user {user_id}")
+            
+            # Get authenticated client
+            supabase_client = get_authenticated_supabase(user_id)
+            
+            # Update the user record
+            update_result = supabase_client.table('users').update({'omi_uid': uid}).eq('id', user_id).execute()
+            
+            print(f"Update result: {update_result}")
+            
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Omi UID Updated</title>
+                <style>
+                    body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                    .container {{ max-width: 600px; margin: 0 auto; text-align: center; }}
+                    .success {{ color: #4CAF50; }}
+                    .button {{ display: inline-block; margin-top: 20px; padding: 10px 15px; background-color: #4CAF50; color: white; text-decoration: none; }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <h1 class="success">Success!</h1>
+                    <p>Your Omi UID has been set to: <strong>{uid}</strong></p>
+                    <p>You can now use your Omi device to send audio to your account.</p>
+                    <a href="/" class="button">Back to Dashboard</a>
+                </div>
+            </body>
+            </html>
+            """
+        except Exception as e:
+            print(f"Error setting UID: {e}")
+            import traceback
+            traceback.print_exc()
+            return f'Failed to set UID: {str(e)}', 500
+
+@app.route('/test_audio_upload', methods=['GET'])
+def test_audio_upload_form():
+    """
+    Display a form for testing audio upload without an actual Omi device
+    """
+    if 'user' not in session:
+        return 'Not logged in. Please log in first.', 401
+    
+    user_id = session['user']['id']
+    
+    # Get current omi_uid for this user
+    try:
+        result = supabase.table('users').select('omi_uid').eq('id', user_id).execute()
+        current_uid = result.data[0]['omi_uid'] if result.data and 'omi_uid' in result.data[0] else None
+    except Exception as e:
+        print(f"Error getting current omi_uid: {e}")
+        current_uid = None
+    
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Test Audio Upload</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; margin: 40px; }}
+            .container {{ max-width: 600px; margin: 0 auto; }}
+            .form-group {{ margin-bottom: 20px; }}
+            label {{ display: block; margin-bottom: 5px; }}
+            input[type=file], input[type=text], input[type=number] {{ width: 100%; padding: 8px; font-size: 16px; margin-bottom: 10px; }}
+            button {{ padding: 10px 15px; background-color: #4CAF50; color: white; border: none; cursor: pointer; }}
+            .current {{ margin-bottom: 20px; padding: 15px; background-color: #f8f8f8; border-radius: 4px; }}
+            .note {{ font-size: 14px; color: #666; margin-top: 5px; }}
+        </style>
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {{
+                const form = document.getElementById('uploadForm');
+                form.addEventListener('submit', async function(e) {{
+                    e.preventDefault();
+                    
+                    const uid = document.getElementById('uid').value;
+                    const sampleRate = document.getElementById('sampleRate').value;
+                    const audioFile = document.getElementById('audioFile').files[0];
+                    
+                    if (!uid || !audioFile) {{
+                        alert('Please provide both UID and audio file');
+                        return;
+                    }}
+                    
+                    // Read file as ArrayBuffer
+                    const reader = new FileReader();
+                    reader.onload = async function(e) {{
+                        const arrayBuffer = e.target.result;
+                        
+                        try {{
+                            // Send the request
+                            const response = await fetch(`/audio_stream?sample_rate=${{sampleRate}}&uid=${{uid}}`, {{
+                                method: 'POST',
+                                headers: {{
+                                    'Content-Type': 'application/octet-stream'
+                                }},
+                                body: arrayBuffer
+                            }});
+                            
+                            const result = await response.text();
+                            const resultElement = document.getElementById('result');
+                            
+                            if (response.ok) {{
+                                resultElement.innerHTML = `<div class="success">
+                                    <h3>Success!</h3>
+                                    <p>${{result}}</p>
+                                </div>`;
+                            }} else {{
+                                resultElement.innerHTML = `<div class="error">
+                                    <h3>Error (${{response.status}})</h3>
+                                    <p>${{result}}</p>
+                                </div>`;
+                            }}
+                        }} catch (error) {{
+                            document.getElementById('result').innerHTML = `<div class="error">
+                                <h3>Error</h3>
+                                <p>${{error.message}}</p>
+                            </div>`;
+                        }}
+                    }};
+                    
+                    reader.readAsArrayBuffer(audioFile);
+                }});
+            }});
+        </script>
+    </head>
+    <body>
+        <div class="container">
+            <h1>Test Audio Upload</h1>
+            
+            <div class="current">
+                <h3>Current Settings</h3>
+                <p><strong>User ID:</strong> {user_id}</p>
+                <p><strong>Current Omi UID:</strong> {current_uid or 'Not set'}</p>
+                <p class="note">If your Omi UID is not set, please <a href="/set_omi_uid">set it here</a> first.</p>
+            </div>
+            
+            <form id="uploadForm">
+                <div class="form-group">
+                    <label for="uid">Omi UID:</label>
+                    <input type="text" id="uid" name="uid" value="{current_uid or ''}" required>
+                    <p class="note">This should match the UID set in your user profile.</p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="sampleRate">Sample Rate (Hz):</label>
+                    <input type="number" id="sampleRate" name="sampleRate" value="16000" required>
+                    <p class="note">Default is 16000 Hz for Omi devices.</p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="audioFile">Audio File:</label>
+                    <input type="file" id="audioFile" name="audioFile" accept="audio/*" required>
+                    <p class="note">Select a WAV or raw audio file.</p>
+                </div>
+                
+                <button type="submit">Upload Audio</button>
+            </form>
+            
+            <div id="result" style="margin-top: 30px;"></div>
+        </div>
+    </body>
+    </html>
+    """
+
+#TESTING#####################
 
 @app.route('/logout')
 def logout():
