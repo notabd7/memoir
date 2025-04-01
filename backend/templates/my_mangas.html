@@ -142,7 +142,7 @@
         
         <main>
             <section class="mangas-section">
-                <h2>Your Manga Stories</h2>
+                <h2>Your Memories</h2>
                 
                 <div class="manga-gallery">
                     {% if mangas %}
@@ -161,7 +161,7 @@
                                         <p class="manga-date">{{ manga.created_at|datetime }}</p>
                                         <p class="manga-panels">{{ manga.panels|length }} panels</p>
                                     </div>
-                                    <button class="view-manga-btn" data-manga-id="{{ manga.id }}">View Manga</button>
+                                    <button class="view-manga-btn" data-manga-id="{{ manga.id }}">View Memoirs</button>
                                 </div>
                             </div>
                         {% endfor %}
@@ -224,7 +224,7 @@
                     }
                     
                     // Update modal title
-                    document.getElementById('modal-manga-title').textContent = `Manga Story #${data.index || ''}`;
+                    document.getElementById('modal-manga-title').textContent = `Memoir #${data.index || ''}`;
                     
                     // Display manga panels
                     let html = '<div class="manga-pages">';

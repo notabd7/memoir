@@ -67,7 +67,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 <polyline points="17 21 17 13 7 13 7 21"></polyline>
                 <polyline points="7 3 7 8 15 8"></polyline>
             </svg>
-            Save Manga
+            Save Memory
         `;
         
         // Insert the Save Manga button before View Full Manga button
@@ -91,7 +91,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             // Show processing indicator
             mangaProcessingIndicator.style.display = 'block';
-            mangaProcessingIndicator.querySelector('p').textContent = 'Saving your manga...';
+            mangaProcessingIndicator.querySelector('p').textContent = 'Saving your memory...';
             saveMangaBtn.disabled = true;
             
             try {
@@ -138,7 +138,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
                 
                 // Show success message
-                alert(`Your manga has been saved successfully! ${result.panel_count} panels were saved.`);
+                alert(`Your memory has been saved successfully! ${result.panel_count} panels were saved.`);
                 
                 // Show the success div if it exists
                 const saveSuccess = document.getElementById('save-success');
@@ -377,7 +377,7 @@ document.addEventListener('DOMContentLoaded', function() {
         generateImagesBtn.addEventListener('click', async function() {
             // Show processing indicator
             mangaProcessingIndicator.style.display = 'block';
-            mangaProcessingIndicator.querySelector('p').textContent = 'Generating manga images...';
+            mangaProcessingIndicator.querySelector('p').textContent = 'Generating memoir images...';
             generateImagesBtn.style.display = 'none';
             
             // Hide any previous success messages
@@ -423,9 +423,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 saveMangaBtn.style.display = 'inline-block';
                 
             } catch (error) {
-                console.error('Error generating manga images:', error);
+                console.error('Error generating memoir images:', error);
                 mangaProcessingIndicator.style.display = 'none';
-                alert('Error generating manga images. Please try again.');
+                alert('Error generating memoir images. Please try again.');
                 // Show the generate images button again so user can retry
                 generateImagesBtn.style.display = 'inline-block';
             }
@@ -537,7 +537,7 @@ document.addEventListener('DOMContentLoaded', function() {
         modal.innerHTML = `
             <div class="manga-modal-content">
                 <span class="manga-close-button">&times;</span>
-                <h2>Your Manga Story</h2>
+                <h2>Your Memory</h2>
                 <div class="manga-pages"></div>
             </div>
         `;

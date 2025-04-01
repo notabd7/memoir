@@ -119,7 +119,144 @@ def create_wav_file(sample_rate, audio_data):
     header = partial_header[:4] + struct.pack('<I', riff_chunk_size) + partial_header[8:]
     
     return header + audio_data
-
+def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None):
+    try:
+        # Get authenticated Supabase client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Download the image or read from local file
+        if isinstance(image_url, str):
+            if image_url.startswith('http'):
+                response = requests.get(image_url)
+                if response.status_code != 200:
+                    print(f"Failed to download image: Status code {response.status_code}")
+                    return None
+                image_bytes = response.content
+            else:
+                # If it's a local file path
+                with open(image_url, 'rb') as f:
+                    image_bytes = f.read()
+        else:
+            # If image_url is already file-like
+            image_bytes = image_url.read()
+        
+        # Define the file path in Supabase storage
+        if is_main:
+            file_path = f"{user_id}/main.png"
+        else:
+            file_path = f"{user_id}/people/{character_id}.png"
+        
+        # Print debug info
+        print(f"Uploading to path: {file_path}")
+        print(f"Image bytes type: {type(image_bytes)}")
+        print(f"Image bytes length: {len(image_bytes) if isinstance(image_bytes, bytes) else 'not bytes'}")
+        
+        try:
+            # First try to update if the file exists
+            print(f"Trying to update existing file...")
+            result = supabase_client.storage.from_('character-images').update(
+                path=file_path,
+                file=image_bytes,
+                file_options={"content-type": "image/png"}
+            )
+            print(f"Update result: {result}")
+        except Exception as e:
+            print(f"Update failed (likely file doesn't exist yet): {e}")
+            # If update fails, try to upload as new file
+            try:
+                print(f"Trying to upload new file...")
+                result = supabase_client.storage.from_('character-images').upload(
+                    path=file_path,
+                    file=image_bytes,
+                    file_options={"content-type": "image/png"}
+                )
+                print(f"Upload result: {result}")
+            except Exception as upload_error:
+                if "The resource already exists" in str(upload_error) or "Duplicate" in str(upload_error):
+                    # If we get here, both update and upload failed
+                    # Let's try to remove and then upload
+                    print(f"Both update and upload failed. Removing existing file and then uploading...")
+                    try:
+                        supabase_client.storage.from_('character-images').remove([file_path])
+                        result = supabase_client.storage.from_('character-images').upload(
+                            path=file_path,
+                            file=image_bytes,
+                            file_options={"content-type": "image/png"}
+                        )
+                        print(f"Remove and re-upload result: {result}")
+                    except Exception as final_error:
+                        print(f"Final attempt failed: {final_error}")
+                        raise final_error
+                else:
+                    raise upload_error
+        
+        # Get the authenticated URL - using the signed URL method for private buckets
+        try:
+            # First, try to get a signed URL with a long expiration (1 week)
+            signed_url = supabase_client.storage.from_('character-images').create_signed_url(
+                path=file_path,
+                expires_in=604800  # 7 days in seconds
+            )
+            print(f"Generated signed URL: {signed_url}")
+            
+            if isinstance(signed_url, dict) and 'signedURL' in signed_url:
+                return signed_url['signedURL']
+            else:
+                # If signedURL not in expected format, create a placeholder URL for now
+                # This URL will need to be refreshed on the client side
+                return f"{SUPABASE_URL}/storage/v1/object/sign/character-images/{file_path}?token=sessionToken"
+                
+        except Exception as url_error:
+            print(f"Error creating signed URL: {url_error}")
+            # Fallback to creating a placeholder URL structure
+            return f"{SUPABASE_URL}/storage/v1/object/sign/character-images/{file_path}?token=sessionToken"
+        
+    except Exception as e:
+        print(f"Error saving image to Supabase: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+def generate_character_with_dalle(description):
+    """Generate a character image using DALL-E based on the description"""
+    try:
+        # Check the description with OpenAI's moderation API
+        headers = {"Authorization": f"Bearer {OPENAI_API_KEY}", "Content-Type": "application/json"}
+        moderation_payload = {"input": description}
+        moderation_response = requests.post(
+            "https://api.openai.com/v1/moderations",
+            headers=headers,
+            json=moderation_payload
+        )
+        moderation_result = moderation_response.json()
+        
+        if moderation_result['results'][0]['flagged']:
+            return None, "The generated description was flagged by the content moderation system. Please try a different image."
+        
+        # If the description passes moderation, proceed to DALL-E
+        dall_e_prompt = f"Create a COLORFUL, PLAYFUL, and WARM animation-style illustration of the character(s) described below in a friendly pose with a cheerful background: {description}. The image should be suitable for all audiences and faithfully represent the provided description with a pleasant, inviting aesthetic."
+        
+        payload = {
+            "model": "dall-e-3",
+            "prompt": dall_e_prompt,
+            "n": 1,
+            "size": "1024x1024",
+            "quality": "standard"
+        }
+        
+        response = requests.post("https://api.openai.com/v1/images/generations", headers=headers, json=payload)
+        result = response.json()
+        
+        if 'error' in result:
+            error_message = result['error']['message']
+            return None, f"DALL-E API Error: {error_message}"
+        
+        image_url = result['data'][0]['url']
+        return image_url, None
+        
+    except Exception as e:
+        return None, f"Error generating character image: {str(e)}"
+    
+    
 @app.route('/audio_stream', methods=['POST'])
 def receive_audio():
     """
@@ -353,7 +490,7 @@ def view_manga(manga_id):
         return jsonify({'error': f'Failed to view manga: {str(e)}'}), 500
     
 def generate_manga_panels_with_dalle(panels, dialogues):
-    """Generate manga panel images using DALL-E based on panel descriptions"""
+    """Generate panel images using DALL-E with improved error handling and rate limits"""
     try:
         print("=== Starting DALL-E image generation ===")
         
@@ -379,9 +516,9 @@ def generate_manga_panels_with_dalle(panels, dialogues):
                     if key not in ["description", "panel_number"] and isinstance(value, str):
                         prompt_parts.append(f"{key}: {value}")
                 
-                # Combine into a final prompt with manga style instructions
-                prompt = "Create a BLACK AND WHITE ONLY image in a MANGA style. " + \
-                         "The image should look like it was SKETCHED with pen and ink, with strong lines and contrasts. " + \
+                # Combine into a final prompt with playful animation style instructions
+                prompt = "Create a COLORFUL and WARM animation-style illustration. " + \
+                         "The image should be PLAYFUL and PLEASANT with cheerful colors and a positive mood. " + \
                          "Scene: " + " ".join(prompt_parts)
                 
                 # Limit prompt to a reasonable length for DALL-E
@@ -402,7 +539,7 @@ def generate_manga_panels_with_dalle(panels, dialogues):
                     "n": 1,
                     "size": "1024x1024",
                     "quality": "standard",
-                    "style": "vivid"  # Using vivid for more dramatic manga-like imagery
+                    "style": "vivid"  # Using vivid for more vibrant, colorful imagery
                 }
                 
                 response = requests.post(
@@ -412,11 +549,17 @@ def generate_manga_panels_with_dalle(panels, dialogues):
                 )
                 
                 if response.status_code != 200:
-                    print(f"Error generating image for panel {panel_number}: {response.text}")
+                    error_data = response.json().get('error', {})
+                    error_code = error_data.get('code', '')
+                    error_message = error_data.get('message', response.text)
+                    
+                    print(f"Error generating image for panel {panel_number}: {error_message}")
+                    
                     return {
                         "panel_number": panel_number,
                         "image_url": None,
-                        "error": response.text
+                        "error": error_code,
+                        "error_message": error_message
                     }
                 
                 result = response.json()
@@ -437,28 +580,92 @@ def generate_manga_panels_with_dalle(panels, dialogues):
                 return {
                     "panel_number": panel.get("panel_number"),
                     "image_url": None,
-                    "error": str(e)
+                    "error": "exception",
+                    "error_message": str(e)
                 }
         
-        # Process panels with concurrency
+        # Process panels in smaller batches to avoid rate limits
+        max_concurrent = 4  # Reduced from 5 to be safe with rate limits
+        batch_results = []
+        
+        # Process first batch
+        first_batch = panels[:max_concurrent]
+        print(f"Processing first batch of {len(first_batch)} panels...")
+        
         import concurrent.futures
-        
-        results = []
-        
-        # Using ThreadPoolExecutor to send concurrent requests
-        # Limiting to max 5 concurrent requests to avoid rate limits
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            # Submit all panel generation tasks
-            futures = [executor.submit(generate_panel_image, panel) for panel in panels]
-            
-            # Collect results as they finish
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+            futures = [executor.submit(generate_panel_image, panel) for panel in first_batch]
             for future in concurrent.futures.as_completed(futures):
                 result = future.result()
                 if result:
-                    results.append(result)
+                    batch_results.append(result)
+        
+        # Wait for rate limit to reset
+        if len(panels) > max_concurrent:
+            print("Waiting 60 seconds for rate limit to reset before processing next batch...")
+            import time
+            time.sleep(60)
+        
+        # Process remaining panels in batches
+        remaining_panels = panels[max_concurrent:]
+        while remaining_panels:
+            current_batch = remaining_panels[:max_concurrent]
+            remaining_panels = remaining_panels[max_concurrent:]
+            
+            print(f"Processing next batch of {len(current_batch)} panels...")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+                futures = [executor.submit(generate_panel_image, panel) for panel in current_batch]
+                for future in concurrent.futures.as_completed(futures):
+                    result = future.result()
+                    if result:
+                        batch_results.append(result)
+            
+            # Wait for rate limit to reset if more panels remain
+            if remaining_panels:
+                print("Waiting 60 seconds for rate limit to reset before processing next batch...")
+                import time
+                time.sleep(60)
+        
+        # Check for failed panels
+        failed_panels = [result for result in batch_results if result.get("error")]
+        
+        # Retry failed panels with content policy violations
+        content_policy_failures = [p for p in failed_panels if p.get("error") == "content_policy_violation"]
+        if content_policy_failures:
+            print(f"Retrying {len(content_policy_failures)} panels that failed due to content policy violations...")
+            
+            for failed in content_policy_failures:
+                panel_number = failed.get("panel_number")
+                panel = next((p for p in panels if p.get("panel_number") == panel_number), None)
+                
+                if panel:
+                    # Modify the prompt to avoid policy violations
+                    # This is a simplified approach - in a real implementation, 
+                    # you might want to use GPT-4 to modify the prompt
+                    description = panel.get("description", "")
+                    
+                    # Create a sanitized version with less specific details
+                    sanitized_description = "A cheerful animated scene showing character in a simple, pleasant setting."
+                    
+                    # Create a new panel with sanitized description
+                    sanitized_panel = panel.copy()
+                    sanitized_panel["description"] = sanitized_description
+                    
+                    print(f"Retrying panel {panel_number} with sanitized description...")
+                    
+                    # Wait to avoid rate limits
+                    time.sleep(5)
+                    
+                    result = generate_panel_image(sanitized_panel)
+                    if result and not result.get("error"):
+                        # Replace the failed result with the successful one
+                        for i, r in enumerate(batch_results):
+                            if r.get("panel_number") == panel_number:
+                                batch_results[i] = result
+                                break
         
         # Sort results by panel_number to maintain original order
-        sorted_results = sorted(results, key=lambda x: x.get("panel_number", 0))
+        sorted_results = sorted(batch_results, key=lambda x: x.get("panel_number", 0))
         
         # Create the final manga data structure
         manga_data = []
@@ -470,10 +677,11 @@ def generate_manga_panels_with_dalle(panels, dialogues):
                 "panel_number": panel_number,
                 "image_url": result.get("image_url"),
                 "dialogue": dialogue,
-                "error": result.get("error")
+                "error": result.get("error"),
+                "error_message": result.get("error_message", "")
             })
         
-        print(f"Completed generating {len(manga_data)} manga panels")
+        print(f"Completed generating {len(manga_data)} story panels")
         return manga_data
         
     except Exception as e:
@@ -481,7 +689,7 @@ def generate_manga_panels_with_dalle(panels, dialogues):
         import traceback
         traceback.print_exc()
         return None
-       
+        
 def get_authenticated_supabase(user_id=None):
     """Get a Supabase client with the user's authentication token"""
     try:
@@ -1225,7 +1433,7 @@ def enhance_panels_with_character_info(panels, character_descriptions):
         "dialogues": dialogues
     }
 def process_script_with_gpt4o(script, characters):
-    """Process a day script with GPT-4o and return separated manga panels and dialogues"""
+    """Process a day script with GPT-4o and return separated story panels and dialogues"""
     try:
         print("=== Starting process_script_with_gpt4o ===")
         
@@ -1264,48 +1472,49 @@ def process_script_with_gpt4o(script, characters):
             "messages": [
                 {
                     "role": "system",
-                    "content": f"""You are a manga script writer and artist who creates short manga stories based on real-life events.
+                    "content": f"""You are a storyboard artist who creates playful, warm, and pleasant animated stories based on real-life events.
                     
 {character_context}
 
-Your task is to select one significant event from the user's script and create a short manga depicting that event through 8-12 panels (2-3 pages with 4 panels each).
+Your task is to select one significant event from the user's script and create a short animated story depicting that event through 8-12 panels (2-3 pages with 4 panels each).
 
 FORMAT YOUR RESPONSE AS A JSON OBJECT with an array of panel objects. Each panel object must have these two properties:
 - 'dialogue': A short, one-line dialogue involving the characters
-- 'description': A detailed visual description of the scene suitable for generating a black and white sketched manga image
+- 'description': A detailed visual description of the scene suitable for generating a colorful, warm, and playful animated illustration
 
 Example JSON format:
 ```json
 {{
   "panels": [
     {{
-      "dialogue": "I can't believe I'm late again!",
-      "description": "Close-up of main character's panicked face, eyes wide with alarm, checking watch"
+      "dialogue": "I can't believe it's our anniversary today!",
+      "description": "Close-up of main character's joyful face with bright eyes and big smile, surrounded by warm golden light"
       
     }},
     {{
-      "dialogue": "The bus is already leaving!",
-      "description": "Wide shot of character running after a bus, arm outstretched, backpack half open"
+      "dialogue": "I've planned something special!",
+      "description": "Wide shot of character standing proudly next to a decorated table with colorful balloons, flowers, and a beautiful cake"
     }}
   ]
 }}
 ```
 
 Guidelines:
-- The manga should follow a coherent narrative about the chosen event
+- The story should follow a coherent narrative about the chosen event
 - Use characters mentioned in the script if their names appear; otherwise, use the main character
-- Keep the style consistent with traditional black and white manga
+- Keep the style consistent with playful, pleasant animation with warm colors
 - Ensure scene descriptions are detailed enough for image generation
-- Make the dialogue authentic and engaging
+- Make the dialogue authentic, engaging and positive
+- Focus on creating cheerful, uplifting scenes when possible
 
-Make sure descriptions focus on composition, expressions, angles, and manga-specific visual elements.
+Make sure descriptions focus on composition, expressions, colors, mood, and animation-specific visual elements.
 
 Remember to format your entire response as a valid JSON object.
 """
                 },
                 {
                     "role": "user",
-                    "content": f"Here is my script describing my day. Please create a manga story based on one significant event from it and format your response as JSON:\n\n{script}"
+                    "content": f"Here is my script describing my day. Please create an animated story based on one significant event from it and format your response as JSON:\n\n{script}"
                 }
             ],
             "response_format": {"type": "json_object"}
@@ -1366,7 +1575,7 @@ Remember to format your entire response as a valid JSON object.
         import traceback
         traceback.print_exc()
         return None
-    
+      
 def filter_panel_characters_simple(panel, character_descriptions):
     """Simple method to filter characters based on text matching"""
     dialogue = panel.get("dialogue", "")
@@ -1847,14 +2056,14 @@ def process_image_with_gpt4o(image):
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a creative art description assistant that helps translate visual elements into written descriptions for artistic recreation. Focus on stylistic elements, composition, and artistic techniques rather than specific identities."
+                    "content": "You are a creative art description assistant that helps translate visual elements into written descriptions for artistic recreation. Focus on creating warm, playful, and pleasant descriptions that highlight cheerful and positive aspects of the subject."
                 },
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": "Please provide a detailed artistic description of this fictional illustration in terms of composition, style, mood, and visual elements. Focus on artistic techniques, stylization, and design elements that would be helpful for creating a black and white sketch interpretation. Describe the artistic choices, poses, expressions, attire, and distinctive stylistic features. Avoid any content that could be inappropriate for general audiences."
+                            "text": "Please provide a detailed artistic description of this person or character in a warm, playful, and pleasant style. Focus on creating a description that would work well for a colorful, cheerful animated character. Highlight positive qualities, friendly expressions, distinctive features, and colorful elements that would translate well to a warm animation style. Avoid any content that could be inappropriate for general audiences."
                         },
                         {
                             "type": "image_url",
@@ -1879,212 +2088,7 @@ def process_image_with_gpt4o(image):
         
     except Exception as e:
         return None, f"Error processing image: {str(e)}"
-
-
-def generate_manga_panels_with_dalle(panels, dialogues):
-    """Generate manga panel images using DALL-E with improved error handling and rate limits"""
-    try:
-        print("=== Starting DALL-E image generation ===")
-        
-        if not OPENAI_API_KEY:
-            print("Error: OpenAI API key is not set")
-            return None
-        
-        # Add panel_number to each panel
-        for i, panel in enumerate(panels):
-            panel["panel_number"] = i
-        
-        # Function to generate a single image with DALL-E
-        def generate_panel_image(panel):
-            try:
-                panel_number = panel.get("panel_number")
-                description = panel.get("description", "")
-                
-                # Build the prompt by combining panel description with character descriptions
-                prompt_parts = [description]
-                
-                # Add character descriptions if available
-                for key, value in panel.items():
-                    if key not in ["description", "panel_number"] and isinstance(value, str):
-                        prompt_parts.append(f"{key}: {value}")
-                
-                # Combine into a final prompt with manga style instructions
-                prompt = "Create a BLACK AND WHITE ONLY image in a MANGA style. " + \
-                         "The image should look like it was SKETCHED with pen and ink, with strong lines and contrasts. " + \
-                         "Scene: " + " ".join(prompt_parts)
-                
-                # Limit prompt to a reasonable length for DALL-E
-                if len(prompt) > 3800:  # DALL-E has a limit around 4000 chars
-                    prompt = prompt[:3800]
-                
-                print(f"Generating image for panel {panel_number}...")
-                print(f"Prompt (truncated): {prompt[:200]}...")
-                
-                headers = {
-                    "Authorization": f"Bearer {OPENAI_API_KEY}",
-                    "Content-Type": "application/json"
-                }
-                
-                payload = {
-                    "model": "dall-e-3",
-                    "prompt": prompt,
-                    "n": 1,
-                    "size": "1024x1024",
-                    "quality": "standard",
-                    "style": "vivid"  # Using vivid for more dramatic manga-like imagery
-                }
-                
-                response = requests.post(
-                    "https://api.openai.com/v1/images/generations",
-                    headers=headers,
-                    json=payload
-                )
-                
-                if response.status_code != 200:
-                    error_data = response.json().get('error', {})
-                    error_code = error_data.get('code', '')
-                    error_message = error_data.get('message', response.text)
-                    
-                    print(f"Error generating image for panel {panel_number}: {error_message}")
-                    
-                    return {
-                        "panel_number": panel_number,
-                        "image_url": None,
-                        "error": error_code,
-                        "error_message": error_message
-                    }
-                
-                result = response.json()
-                image_url = result['data'][0]['url']
-                
-                print(f"Successfully generated image for panel {panel_number}")
-                
-                return {
-                    "panel_number": panel_number,
-                    "image_url": image_url,
-                    "error": None
-                }
-            
-            except Exception as e:
-                print(f"Error generating image for panel {panel_number}: {e}")
-                import traceback
-                traceback.print_exc()
-                return {
-                    "panel_number": panel.get("panel_number"),
-                    "image_url": None,
-                    "error": "exception",
-                    "error_message": str(e)
-                }
-        
-        # Process panels in smaller batches to avoid rate limits
-        max_concurrent = 4  # Reduced from 5 to be safe with rate limits
-        batch_results = []
-        
-        # Process first batch
-        first_batch = panels[:max_concurrent]
-        print(f"Processing first batch of {len(first_batch)} panels...")
-        
-        import concurrent.futures
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as executor:
-            futures = [executor.submit(generate_panel_image, panel) for panel in first_batch]
-            for future in concurrent.futures.as_completed(futures):
-                result = future.result()
-                if result:
-                    batch_results.append(result)
-        
-        # Wait for rate limit to reset
-        if len(panels) > max_concurrent:
-            print("Waiting 60 seconds for rate limit to reset before processing next batch...")
-            import time
-            time.sleep(60)
-        
-        # Process remaining panels in batches
-        remaining_panels = panels[max_concurrent:]
-        while remaining_panels:
-            current_batch = remaining_panels[:max_concurrent]
-            remaining_panels = remaining_panels[max_concurrent:]
-            
-            print(f"Processing next batch of {len(current_batch)} panels...")
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as executor:
-                futures = [executor.submit(generate_panel_image, panel) for panel in current_batch]
-                for future in concurrent.futures.as_completed(futures):
-                    result = future.result()
-                    if result:
-                        batch_results.append(result)
-            
-            # Wait for rate limit to reset if more panels remain
-            if remaining_panels:
-                print("Waiting 60 seconds for rate limit to reset before processing next batch...")
-                import time
-                time.sleep(60)
-        
-        # Check for failed panels
-        failed_panels = [result for result in batch_results if result.get("error")]
-        
-        # Retry failed panels with content policy violations
-        content_policy_failures = [p for p in failed_panels if p.get("error") == "content_policy_violation"]
-        if content_policy_failures:
-            print(f"Retrying {len(content_policy_failures)} panels that failed due to content policy violations...")
-            
-            for failed in content_policy_failures:
-                panel_number = failed.get("panel_number")
-                panel = next((p for p in panels if p.get("panel_number") == panel_number), None)
-                
-                if panel:
-                    # Modify the prompt to avoid policy violations
-                    # This is a simplified approach - in a real implementation, 
-                    # you might want to use GPT-4 to modify the prompt
-                    description = panel.get("description", "")
-                    
-                    # Create a sanitized version with less specific details
-                    sanitized_description = "A manga scene showing character in a simple setting."
-                    
-                    # Create a new panel with sanitized description
-                    sanitized_panel = panel.copy()
-                    sanitized_panel["description"] = sanitized_description
-                    
-                    print(f"Retrying panel {panel_number} with sanitized description...")
-                    
-                    # Wait to avoid rate limits
-                    time.sleep(5)
-                    
-                    result = generate_panel_image(sanitized_panel)
-                    if result and not result.get("error"):
-                        # Replace the failed result with the successful one
-                        for i, r in enumerate(batch_results):
-                            if r.get("panel_number") == panel_number:
-                                batch_results[i] = result
-                                break
-        
-        # Sort results by panel_number to maintain original order
-        sorted_results = sorted(batch_results, key=lambda x: x.get("panel_number", 0))
-        
-        # Create the final manga data structure
-        manga_data = []
-        for i, result in enumerate(sorted_results):
-            panel_number = result.get("panel_number")
-            dialogue = dialogues[panel_number] if panel_number < len(dialogues) else ""
-            
-            manga_data.append({
-                "panel_number": panel_number,
-                "image_url": result.get("image_url"),
-                "dialogue": dialogue,
-                "error": result.get("error"),
-                "error_message": result.get("error_message", "")
-            })
-        
-        print(f"Completed generating {len(manga_data)} manga panels")
-        return manga_data
-        
-    except Exception as e:
-        print(f"Error in generate_manga_panels_with_dalle: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
-
-# Add this function to your code for handling rate limit errors with exponential backoff
-
+    
 def retry_with_backoff(func, panel, max_retries=3, base_delay=60):
     """Retry a function with exponential backoff for rate limit errors"""
     for attempt in range(max_retries):
@@ -2581,6 +2585,305 @@ def test_audio_upload_form():
 
 #TESTING#####################
 
+
+@app.route('/fetch_webhook_data', methods=['GET'])
+def fetch_webhook_data():
+    """
+    Fetch data from the webhook URL and process it to create a script.
+    """
+    try:
+        if 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        user_id = session['user']['id']
+        
+        # Get the user's Omi UID
+        try:
+            result = supabase.table('users').select('omi_uid').eq('id', user_id).execute()
+            omi_uid = result.data[0]['omi_uid'] if result.data and 'omi_uid' in result.data[0] else None
+            
+            if not omi_uid:
+                return jsonify({'error': 'Omi UID not set. Please set your Omi UID first.'}), 400
+                
+        except Exception as e:
+            print(f"Error getting omi_uid: {e}")
+            return jsonify({'error': 'Failed to retrieve Omi UID'}), 500
+        
+        # Fetch data from webhook
+        webhook_url = f"https://webhook.site/6e59844e-e7d0-4061-9b36-e4259422831a?uid={omi_uid}"
+        
+        response = requests.get(webhook_url)
+        if response.status_code != 200:
+            return jsonify({'error': f'Failed to fetch data from webhook: {response.status_code}'}), 500
+        
+        # Process the webhook data
+        try:
+            webhook_data = response.json()
+            print(f"Received webhook data: {webhook_data}")
+            
+            # Extract text segments
+            segments = webhook_data.get('segments', [])
+            if not segments:
+                return jsonify({'error': 'No text segments found in webhook data'}), 404
+            
+            # Construct a script from the segments
+            script = ""
+            for segment in segments:
+                speaker = segment.get('speaker', 'Unknown')
+                text = segment.get('text', '')
+                
+                if text:
+                    script += f"{speaker}: {text}\n"
+            
+            # Store the script in the database
+            try:
+                script_id = str(uuid.uuid4())
+                
+                script_data = {
+                    'id': script_id,
+                    'user_id': user_id,
+                    'content': script,
+                    'created_at': datetime.now().isoformat(),
+                    'source': 'webhook'
+                }
+                
+                # Get authenticated client
+                supabase_client = get_authenticated_supabase(user_id)
+                
+                # Insert the script
+                result = supabase_client.table('scripts').insert(script_data).execute()
+                
+                return jsonify({
+                    'success': True,
+                    'script': script,
+                    'script_id': script_id
+                })
+                
+            except Exception as db_error:
+                print(f"Error storing script: {db_error}")
+                import traceback
+                traceback.print_exc()
+                
+                # Return the script even if storing fails
+                return jsonify({
+                    'success': True,
+                    'script': script,
+                    'warning': 'Script was generated but could not be stored in the database'
+                })
+                
+        except Exception as proc_error:
+            print(f"Error processing webhook data: {proc_error}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Failed to process webhook data: {str(proc_error)}'}), 500
+            
+    except Exception as e:
+        print(f"Error in fetch_webhook_data: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/webhook_receiver', methods=['POST'])
+def webhook_receiver():
+    """
+    Endpoint to directly receive webhook data and store it for the user.
+    
+    Expected webhook format:
+    {
+      "session_id": "user_uid",
+      "segments": [
+        {
+          "text": "Text content",
+          "speaker": "SPEAKER_X",
+          "speaker_id": X,
+          "is_user": true/false,
+          "person_id": null,
+          "start": 0,
+          "end": 0.5
+        }
+      ]
+    }
+    """
+    try:
+        data = request.json
+        print(f"Received webhook data: {data}")
+        
+        if not data:
+            return jsonify({'error': 'No data received'}), 400
+            
+        # Extract the UID from the session_id field
+        omi_uid = data.get('session_id')
+        if not omi_uid:
+            return jsonify({'error': 'No session_id provided in webhook data'}), 400
+            
+        # Find the user with this OMI UID
+        try:
+            result = supabase.table('users').select('id').eq('omi_uid', omi_uid).execute()
+            
+            if not result.data:
+                print(f"No user found with omi_uid: {omi_uid}")
+                return jsonify({'error': 'No user found with the provided session_id'}), 404
+                
+            user_id = result.data[0]['id']
+            print(f"Found user {user_id} for omi_uid {omi_uid}")
+            
+        except Exception as e:
+            print(f"Error finding user: {e}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': 'Error processing user information'}), 500
+            
+        # Extract text segments
+        segments = data.get('segments', [])
+        if not segments:
+            return jsonify({'error': 'No text segments found in webhook data'}), 400
+            
+        # Construct a script from the segments
+        script = ""
+        for segment in segments:
+            speaker = segment.get('speaker', 'Unknown')
+            text = segment.get('text', '')
+            
+            if text:
+                script += f"{speaker}: {text}\n"
+                
+        print(f"Generated script: {script}")
+        
+        # Store the script in the database
+        try:
+            script_id = str(uuid.uuid4())
+            
+            script_data = {
+                'id': script_id,
+                'user_id': user_id,
+                'content': script,
+                'created_at': datetime.now().isoformat(),
+                'source': 'webhook'
+            }
+            
+            # Use service role client for storing
+            result = supabase.table('scripts').insert(script_data).execute()
+            
+            print(f"Stored script with ID: {script_id}")
+            return jsonify({
+                'success': True,
+                'message': 'Webhook data processed successfully',
+                'script_id': script_id
+            })
+            
+        except Exception as db_error:
+            print(f"Error storing script: {db_error}")
+            import traceback
+            traceback.print_exc()
+            return jsonify({'error': f'Failed to store script: {str(db_error)}'}), 500
+            
+    except Exception as e:
+        print(f"Error in webhook_receiver: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/scripts')
+def view_scripts():
+    """
+    View all scripts for the current user
+    """
+    if 'user' not in session:
+        return redirect('/login')
+    
+    user_id = session['user']['id']
+    
+    try:
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Get all scripts for the user
+        scripts_result = supabase_client.table('scripts').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
+        
+        scripts = scripts_result.data if scripts_result.data else []
+        
+        return render_template('scripts.html', user=session['user'], scripts=scripts)
+        
+    except Exception as e:
+        print(f"Error fetching scripts: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        # Return an empty list if there's an error
+        return render_template('scripts.html', user=session['user'], scripts=[], error=str(e))
+    
+
+@app.route('/get_script/<script_id>', methods=['GET'])
+def get_script(script_id):
+    """
+    Retrieve a specific script by ID
+    """
+    try:
+        if 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        user_id = session['user']['id']
+        
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Get the specified script
+        script_result = supabase_client.table('scripts').select('*').eq('id', script_id).eq('user_id', user_id).execute()
+        
+        if not script_result.data:
+            return jsonify({'error': 'Script not found or does not belong to user'}), 404
+            
+        script = script_result.data[0]
+        
+        return jsonify({
+            'success': True,
+            'script': script
+        })
+        
+    except Exception as e:
+        print(f"Error fetching script: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/create_manga', methods=['GET'])
+def create_manga_page():
+    """
+    Page to create a manga from a script
+    """
+    if 'user' not in session:
+        return redirect('/login')
+    
+    script_id = request.args.get('script_id')
+    
+    if not script_id:
+        return redirect('/scripts')
+    
+    user_id = session['user']['id']
+    
+    try:
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Get the specified script
+        script_result = supabase_client.table('scripts').select('*').eq('id', script_id).eq('user_id', user_id).execute()
+        
+        if not script_result.data:
+            return "Script not found or does not belong to user", 404
+            
+        script = script_result.data[0]
+        
+        return render_template('create_manga.html', user=session['user'], script=script)
+        
+    except Exception as e:
+        print(f"Error fetching script: {e}")
+        import traceback
+        traceback.print_exc()
+        return f"Error: {str(e)}", 500
+    
 @app.route('/logout')
 def logout():
     session.clear()

@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Scripts - Manga Creator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <style>
+        .script-card {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .script-content {
+            white-space: pre-wrap;
+            font-family: monospace;
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .script-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <header>
+        <div class="logo">
+            <h1>Manga Creator</h1>
+        </div>
+        <nav>
+            <ul>
+                <li><a href="/">Dashboard</a></li>
+                <li><a href="/people">Characters</a></li>
+                <li><a href="/my_mangas">My Mangas</a></li>
+                <li><a href="/scripts" class="active">Scripts</a></li>
+                <li><a href="/logout">Logout</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <!-- Main Content -->
+    <main class="container">
+        <h1>My Scripts</h1>
+        
+        <div class="actions">
+            <button id="fetchWebhookBtn" class="primary-button">Fetch Latest Webhook Data</button>
+        </div>
+        
+        <div id="notification" style="display: none; margin: 20px 0; padding: 10px; border-radius: 4px;"></div>
+        
+        {% if error %}
+        <div class="error-message">
+            <p>Error fetching scripts: {{ error }}</p>
+        </div>
+        {% endif %}
+        
+        {% if scripts %}
+            <div class="scripts-list">
+                {% for script in scripts %}
+                <div class="script-card">
+                    <h3>Script from {{ script.created_at|datetime }}</h3>
+                    <p><small>Source: {{ script.source }}</small></p>
+                    <div class="script-content">{{ script.content }}</div>
+                    <div class="script-actions">
+                        <button class="generate-manga-btn" data-script-id="{{ script.id }}">Generate Manga</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <p>You don't have any scripts yet. Use the button above to fetch data from your Omi device.</p>
+            </div>
+        {% endif %}
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <p>&copy; 2025 Manga Creator App</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Fetch webhook data button
+            const fetchWebhookBtn = document.getElementById('fetchWebhookBtn');
+            const notification = document.getElementById('notification');
+            
+            fetchWebhookBtn.addEventListener('click', async function() {
+                try {
+                    fetchWebhookBtn.disabled = true;
+                    fetchWebhookBtn.textContent = 'Fetching...';
+                    
+                    const response = await fetch('/fetch_webhook_data');
+                    const result = await response.json();
+                    
+                    if (response.ok && result.success) {
+                        notification.style.display = 'block';
+                        notification.style.backgroundColor = '#d4edda';
+                        notification.style.color = '#155724';
+                        notification.textContent = 'Successfully fetched new script! Refreshing page...';
+                        
+                        // Refresh the page after 2 seconds
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 2000);
+                    } else {
+                        notification.style.display = 'block';
+                        notification.style.backgroundColor = '#f8d7da';
+                        notification.style.color = '#721c24';
+                        notification.textContent = result.error || 'Failed to fetch webhook data';
+                        
+                        fetchWebhookBtn.disabled = false;
+                        fetchWebhookBtn.textContent = 'Fetch Latest Webhook Data';
+                    }
+                } catch (error) {
+                    notification.style.display = 'block';
+                    notification.style.backgroundColor = '#f8d7da';
+                    notification.style.color = '#721c24';
+                    notification.textContent = 'Error: ' + error.message;
+                    
+                    fetchWebhookBtn.disabled = false;
+                    fetchWebhookBtn.textContent = 'Fetch Latest Webhook Data';
+                }
+            });
+            
+            // Generate manga buttons
+            document.querySelectorAll('.generate-manga-btn').forEach(button => {
+                button.addEventListener('click', async function() {
+                    const scriptId = this.getAttribute('data-script-id');
+                    
+                    // First, get the script content
+                    try {
+                        const scriptResponse = await fetch(`/get_script/${scriptId}`);
+                        const scriptResult = await scriptResponse.json();
+                        
+                        if (!scriptResponse.ok) {
+                            alert('Error: ' + (scriptResult.error || 'Failed to fetch script'));
+                            return;
+                        }
+                        
+                        // Redirect to the generate manga page with the script content
+                        window.location.href = `/create_manga?script_id=${scriptId}`;
+                    } catch (error) {
+                        alert('Error: ' + error.message);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
