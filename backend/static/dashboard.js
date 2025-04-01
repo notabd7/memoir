@@ -23,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const mangaResult = document.getElementById('manga-result');
     const mangaPanels = document.getElementById('manga-panels');
     const viewFullMangaBtn = document.getElementById('view-full-manga');
+    const saveSuccessDiv = document.getElementById('save-success');
 
     let stream = null;
     let imageCapture = null;
@@ -46,6 +47,120 @@ document.addEventListener('DOMContentLoaded', function() {
     if (viewFullMangaBtn) {
         viewFullMangaBtn.parentNode.insertBefore(generateImagesBtn, viewFullMangaBtn);
     }
+
+    // Create the Save Manga button
+    function addSaveMangaButton() {
+        console.log("Adding save manga button");
+        
+        // Create a save manga button if it doesn't already exist
+        if (document.getElementById('save-manga-btn')) {
+            return document.getElementById('save-manga-btn');
+        }
+        
+        const saveMangaBtn = document.createElement('button');
+        saveMangaBtn.id = 'save-manga-btn';
+        saveMangaBtn.className = 'action-button';
+        saveMangaBtn.style.display = 'none';
+        saveMangaBtn.innerHTML = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            Save Manga
+        `;
+        
+        // Insert the Save Manga button before View Full Manga button
+        if (viewFullMangaBtn) {
+            viewFullMangaBtn.parentNode.insertBefore(saveMangaBtn, viewFullMangaBtn);
+        } else if (mangaResult) {
+            mangaResult.appendChild(saveMangaBtn);
+        }
+        
+        // Add event listener to the save button
+        saveMangaBtn.addEventListener('click', async function() {
+            console.log("Save manga button clicked");
+            
+            // Get the manga panels data
+            const mangaPanelsData = document.getElementById('manga-panels').dataset.mangaPanels;
+            
+            if (!mangaPanelsData) {
+                alert('Please generate manga images first before saving.');
+                return;
+            }
+            
+            // Show processing indicator
+            mangaProcessingIndicator.style.display = 'block';
+            mangaProcessingIndicator.querySelector('p').textContent = 'Saving your manga...';
+            saveMangaBtn.disabled = true;
+            
+            try {
+                // Get manga panels data
+                const mangaPanelsEl = document.getElementById('manga-panels');
+                
+                // First try to get from mangaPanels
+                let data = null;
+                if (mangaPanelsEl.dataset.mangaPanels) {
+                    try {
+                        data = JSON.parse(mangaPanelsEl.dataset.mangaPanels);
+                        console.log("Using manga_panels data from dataset:", data.length, "panels");
+                    } catch (e) {
+                        console.error("Error parsing manga panels data:", e);
+                    }
+                }
+                
+                if (!data) {
+                    alert('No manga data found. Please generate images first.');
+                    mangaProcessingIndicator.style.display = 'none';
+                    return;
+                }
+                
+                // Send the request with the correct key 'manga_panels'
+                const response = await fetch('/save_manga', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        manga_panels: data
+                    })
+                });
+                
+                const result = await response.json();
+                console.log("Save result:", result);
+                
+                // Hide processing indicator
+                mangaProcessingIndicator.style.display = 'none';
+                
+                if (result.error) {
+                    alert('Error: ' + result.error);
+                    return;
+                }
+                
+                // Show success message
+                alert(`Your manga has been saved successfully! ${result.panel_count} panels were saved.`);
+                
+                // Show the success div if it exists
+                const saveSuccess = document.getElementById('save-success');
+                if (saveSuccess) {
+                    saveSuccess.style.display = 'block';
+                }
+                
+                // Hide the save button
+                saveMangaBtn.style.display = 'none';
+                
+            } catch (error) {
+                console.error('Error saving manga:', error);
+                mangaProcessingIndicator.style.display = 'none';
+                alert('Error saving manga. Please try again.');
+            }
+        });
+        
+        return saveMangaBtn;
+    }
+    
+    // Initialize or retrieve the save manga button
+    const saveMangaBtn = addSaveMangaButton();
 
     // Function to refresh signed URLs for images
     async function refreshSignedUrls() {
@@ -212,6 +327,11 @@ document.addEventListener('DOMContentLoaded', function() {
             mangaResult.style.display = 'none';
             generateImagesBtn.style.display = 'none';
             
+            // Hide any previous success messages
+            if (saveSuccessDiv) {
+                saveSuccessDiv.style.display = 'none';
+            }
+            
             try {
                 // Send script to backend
                 const response = await fetch('/generate_manga', {
@@ -260,6 +380,11 @@ document.addEventListener('DOMContentLoaded', function() {
             mangaProcessingIndicator.querySelector('p').textContent = 'Generating manga images...';
             generateImagesBtn.style.display = 'none';
             
+            // Hide any previous success messages
+            if (saveSuccessDiv) {
+                saveSuccessDiv.style.display = 'none';
+            }
+            
             try {
                 const script = dayScriptInput.value.trim();
                 
@@ -290,6 +415,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 
                 // Show result
                 mangaResult.style.display = 'block';
+                
+                // Show View Full Manga button
+                viewFullMangaBtn.style.display = 'inline-block';
+                
+                // Show Save Manga button
+                saveMangaBtn.style.display = 'inline-block';
                 
             } catch (error) {
                 console.error('Error generating manga images:', error);
@@ -330,8 +461,10 @@ document.addEventListener('DOMContentLoaded', function() {
         mangaPanels.dataset.dialogues = JSON.stringify(dialogues);
     }
     
-    // Function to display manga panels with actual images
+    // Function to display manga images
     function displayMangaImages(mangaPanels) {
+        console.log("Displaying manga images:", mangaPanels ? mangaPanels.length : 0, "panels");
+        
         // Clear previous panels
         document.getElementById('manga-panels').innerHTML = '';
         
@@ -364,7 +497,18 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Store the manga panels data for later use
-        document.getElementById('manga-panels').dataset.mangaPanels = JSON.stringify(mangaPanels);
+        const mangaPanelsJSON = JSON.stringify(mangaPanels);
+        console.log("Storing manga panels data:", mangaPanelsJSON ? mangaPanelsJSON.substring(0, 100) + "..." : "empty");
+        document.getElementById('manga-panels').dataset.mangaPanels = mangaPanelsJSON;
+        
+        // Show buttons after manga is generated
+        if (viewFullMangaBtn) {
+            viewFullMangaBtn.style.display = 'inline-block';
+        }
+        
+        if (saveMangaBtn) {
+            saveMangaBtn.style.display = 'inline-block';
+        }
     }
     
     // View full manga button click handler

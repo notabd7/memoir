@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Manga Creator - My Mangas</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <style>
+        .manga-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 25px;
+            margin-top: 30px;
+        }
+        
+        .manga-card {
+            background-color: white;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .manga-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.15);
+        }
+        
+        .manga-cover {
+            height: 200px;
+            background-color: #f5f5f5;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            position: relative;
+        }
+        
+        .manga-cover img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        
+        .manga-info {
+            padding: 15px;
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        
+        .manga-title {
+            font-size: 1.2rem;
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        
+        .manga-date {
+            font-size: 0.8rem;
+            color: #777;
+            margin-bottom: 10px;
+        }
+        
+        .manga-panels {
+            font-size: 0.9rem;
+            color: #555;
+            margin-bottom: 15px;
+        }
+        
+        .view-manga-btn {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-top: auto;
+            display: inline-block;
+            text-decoration: none;
+        }
+        
+        .view-manga-btn:hover {
+            background-color: #3367d6;
+        }
+        
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 50px 20px;
+            background-color: #f9f9f9;
+            border-radius: 10px;
+            color: #757575;
+        }
+        
+        /* Manga viewer modal */
+        .manga-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            align-items: center;
+            justify-content: center;
+            overflow-y: auto;
+        }
+        
+        .manga-modal-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            position: relative;
+            width: 90%;
+            max-width: 1000px;
+            max-height: 90vh;
+            overflow-y: auto;
+            margin: 50px auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>My Manga Collection</h1>
+            <div class="header-actions">
+                <a href="{{ url_for('index') }}" class="action-button">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                        <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                    </svg>
+                    Back to Dashboard
+                </a>
+                <img src="{{ user.profile_picture }}" alt="Profile Picture" class="profile-picture">
+                <a href="{{ url_for('logout') }}" class="logout-button">Logout</a>
+            </div>
+        </header>
+        
+        <main>
+            <section class="mangas-section">
+                <h2>Your Manga Stories</h2>
+                
+                <div class="manga-gallery">
+                    {% if mangas %}
+                        {% for manga in mangas %}
+                            <div class="manga-card">
+                                <div class="manga-cover">
+                                    {% if manga.cover_image %}
+                                        <img src="{{ manga.cover_image }}" alt="Manga cover">
+                                    {% else %}
+                                        <div class="placeholder-cover">No cover available</div>
+                                    {% endif %}
+                                </div>
+                                <div class="manga-info">
+                                    <div>
+                                        <h3 class="manga-title">Manga Story #{{ loop.index }}</h3>
+                                        <p class="manga-date">{{ manga.created_at|datetime }}</p>
+                                        <p class="manga-panels">{{ manga.panels|length }} panels</p>
+                                    </div>
+                                    <button class="view-manga-btn" data-manga-id="{{ manga.id }}">View Manga</button>
+                                </div>
+                            </div>
+                        {% endfor %}
+                    {% else %}
+                        <div class="empty-state">
+                            <p>You haven't created any manga stories yet.</p>
+                            <p>Go back to the dashboard to create your first manga!</p>
+                            <a href="{{ url_for('index') }}" class="action-button" style="margin-top: 20px;">Create New Manga</a>
+                        </div>
+                    {% endif %}
+                </div>
+            </section>
+        </main>
+        
+        <!-- Manga viewer modal -->
+        <div id="manga-viewer-modal" class="manga-modal">
+            <div class="manga-modal-content">
+                <span class="manga-close-button" onclick="closeModal()">&times;</span>
+                <h2 id="modal-manga-title">Manga Story</h2>
+                <div id="modal-manga-content">
+                    <!-- Manga content will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Add event listeners to all view manga buttons
+            const viewButtons = document.querySelectorAll('.view-manga-btn');
+            viewButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const mangaId = this.dataset.mangaId;
+                    openMangaViewer(mangaId);
+                });
+            });
+            
+            // Refresh any signed URLs on the page
+            refreshSignedUrls();
+        });
+        
+        // Function to open the manga viewer modal
+        function openMangaViewer(mangaId) {
+            const modal = document.getElementById('manga-viewer-modal');
+            const modalContent = document.getElementById('modal-manga-content');
+            
+            // Clear previous content
+            modalContent.innerHTML = '<div class="spinner"></div>';
+            
+            // Show the modal
+            modal.style.display = 'block';
+            
+            // Load the manga content
+            fetch(`/view_manga/${mangaId}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        modalContent.innerHTML = `<p class="error">${data.error}</p>`;
+                        return;
+                    }
+                    
+                    // Update modal title
+                    document.getElementById('modal-manga-title').textContent = `Manga Story #${data.index || ''}`;
+                    
+                    // Display manga panels
+                    let html = '<div class="manga-pages">';
+                    
+                    // Group panels into pages (4 panels per page)
+                    for (let i = 0; i < data.panels.length; i += 4) {
+                        html += '<div class="manga-page">';
+                        
+                        // Add up to 4 panels for this page
+                        for (let j = i; j < Math.min(i + 4, data.panels.length); j++) {
+                            const panel = data.panels[j];
+                            
+                            html += `
+                                <div class="manga-panel-full">
+                                    <div class="panel-image-container-full">
+                                        <img src="${panel.image_url}" alt="Panel ${panel.panel_number + 1}" class="panel-image">
+                                    </div>
+                                    <div class="panel-dialogue-full">${panel.dialogue}</div>
+                                </div>
+                            `;
+                        }
+                        
+                        html += '</div>';
+                    }
+                    
+                    html += '</div>';
+                    
+                    modalContent.innerHTML = html;
+                    
+                    // Refresh signed URLs in the modal
+                    refreshSignedUrls();
+                })
+                .catch(error => {
+                    console.error('Error loading manga:', error);
+                    modalContent.innerHTML = '<p class="error">Error loading manga. Please try again.</p>';
+                });
+        }
+        
+        // Function to close the modal
+        function closeModal() {
+            document.getElementById('manga-viewer-modal').style.display = 'none';
+        }
+        
+        // Close the modal when clicking outside of it
+        window.addEventListener('click', function(event) {
+            const modal = document.getElementById('manga-viewer-modal');
+            if (event.target === modal) {
+                modal.style.display = 'none';
+            }
+        });
+        
+        // Function to refresh signed URLs
+        async function refreshSignedUrls() {
+            // Find all images with URLs that contain "sign" (indicating a signed URL)
+            const images = document.querySelectorAll('img[src*="sign"]');
+            
+            for (const img of images) {
+                const currentSrc = img.src;
+                // Extract the path from the URL (everything after the bucket name)
+                const pathMatch = currentSrc.match(/(?:character-images|manga-panels)\/(.+?)(\?|$)/);
+                
+                if (pathMatch && pathMatch[1]) {
+                    const path = pathMatch[1];
+                    const bucket = currentSrc.includes('character-images') ? 'character-images' : 'manga-panels';
+                    
+                    try {
+                        const response = await fetch('/get-signed-image-url', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({ 
+                                path: path,
+                                bucket: bucket
+                            })
+                        });
+                        
+                        const result = await response.json();
+                        
+                        if (result.url) {
+                            img.src = result.url;
+                        }
+                    } catch (error) {
+                        console.error('Error refreshing image URL:', error);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

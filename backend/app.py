@@ -32,7 +32,28 @@ except Exception as e:
     supabase = None
 
 ##spme testing for image uploading
-
+@app.template_filter('datetime')
+def format_datetime(value, format='%B %d, %Y at %I:%M %p'):
+    """Format a datetime to a pretty string format."""
+    if value is None:
+        return ""
+    
+    # If the value is a string, try to parse it
+    if isinstance(value, str):
+        try:
+            from dateutil import parser
+            value = parser.parse(value)
+        except Exception as e:
+            print(f"Error parsing datetime: {e}")
+            return value
+    
+    # Now format the datetime
+    try:
+        return value.strftime(format)
+    except Exception as e:
+        print(f"Error formatting datetime: {e}")
+        return str(value)
+    
 def ensure_user_exists(user_id, supabase_client):
     """Ensure the user exists in the users table"""
     try:
@@ -62,6 +83,102 @@ def ensure_user_exists(user_id, supabase_client):
         traceback.print_exc()
         return False
 
+@app.route('/my_mangas')
+def my_mangas():
+    if 'user' not in session:
+        return redirect('/login')
+    
+    user_id = session['user']['id']
+    
+    try:
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Get all mangas for the user
+        mangas_result = supabase_client.table('mangas').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
+        
+        mangas = []
+        if mangas_result.data:
+            print(f"Retrieved {len(mangas_result.data)} mangas for user {user_id}")
+            
+            # For each manga, get the panels
+            for manga in mangas_result.data:
+                manga_id = manga['id']
+                
+                # Get panels for this manga
+                panels_result = supabase_client.table('panels').select('*').eq('manga_id', manga_id).order('panel_number').execute()
+                
+                # Add panels to the manga
+                manga['panels'] = panels_result.data if panels_result.data else []
+                
+                # Get a cover image (first panel's image)
+                if manga['panels']:
+                    manga['cover_image'] = manga['panels'][0]['image_url']
+                else:
+                    manga['cover_image'] = None
+                
+                mangas.append(manga)
+        else:
+            print(f"Retrieved 0 mangas for user {user_id}")
+                
+    except Exception as e:
+        print(f"Error fetching mangas: {e}")
+        import traceback
+        traceback.print_exc()
+        mangas = []
+    
+    return render_template('my_mangas.html', user=session['user'], mangas=mangas)
+
+@app.route('/view_manga/<manga_id>')
+def view_manga(manga_id):
+    try:
+        if 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        user_id = session['user']['id']
+        
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Verify the manga belongs to the user
+        manga_result = supabase_client.table('mangas').select('*').eq('id', manga_id).eq('user_id', user_id).execute()
+        
+        if not manga_result.data:
+            return jsonify({'error': 'Manga not found or does not belong to user'}), 404
+        
+        manga = manga_result.data[0]
+        
+        # Get all panels for this manga
+        panels_result = supabase_client.table('panels').select('*').eq('manga_id', manga_id).order('panel_number').execute()
+        
+        if not panels_result.data:
+            return jsonify({'error': 'No panels found for this manga'}), 404
+        
+        # Get the index of this manga in the user's collection (for display purposes)
+        manga_index_result = supabase_client.table('mangas').select('id').eq('user_id', user_id).order('created_at', desc=True).execute()
+        manga_index = 0
+        
+        if manga_index_result.data:
+            manga_ids = [m['id'] for m in manga_index_result.data]
+            try:
+                manga_index = manga_ids.index(manga_id) + 1  # 1-based index for display
+            except ValueError:
+                manga_index = 0
+        
+        # Return the panels and manga info
+        return jsonify({
+            'success': True,
+            'manga': manga,
+            'panels': panels_result.data,
+            'index': manga_index
+        })
+        
+    except Exception as e:
+        print(f"Error viewing manga: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to view manga: {str(e)}'}), 500
+    
 def generate_manga_panels_with_dalle(panels, dialogues):
     """Generate manga panel images using DALL-E based on panel descriptions"""
     try:
@@ -299,12 +416,335 @@ def callback():
     # This route handles the OAuth callback
     return render_template('callback.html')
 
+# Add these functions to your app.py file
 
-# Add these imports at the top of your app.py file if not already there
-import json
-from datetime import datetime
+def create_manga(user_id):
+    """Create a new manga entry for the user and return it"""
+    try:
+        print(f"Creating new manga for user {user_id}")
+        result = supabase.table("mangas").insert({"user_id": user_id}).execute()
+        print(f"Created manga with ID: {result.data[0]['id']}")
+        return result.data[0]
+    except Exception as e:
+        print(f"Error creating manga: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
+def create_panels(manga_id, panels_data):
+    """
+    Save panel data to the database
+    panels_data should be a list of dicts with: panel_number, image_url, dialogue
+    """
+    try:
+        print(f"Saving {len(panels_data)} panels for manga {manga_id}")
+        
+        # Format the panels for database insert
+        panel_records = []
+        for panel in panels_data:
+            panel_records.append({
+                "manga_id": manga_id,
+                "panel_number": panel.get("panel_number", 0),
+                "image_url": panel.get("image_url", ""),
+                "dialogue": panel.get("dialogue", "")
+            })
+        
+        if not panel_records:
+            print("No panel data to save")
+            return []
+            
+        result = supabase.table("panels").insert(panel_records).execute()
+        print(f"Saved {len(result.data)} panels to database")
+        return result.data
+    except Exception as e:
+        print(f"Error saving panels: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
 
+def get_manga_count(user_id):
+    """Get the count of mangas for a user"""
+    try:
+        result = supabase.table("mangas").select("id", count="exact").eq("user_id", user_id).execute()
+        count = result.count
+        print(f"User {user_id} has {count} mangas")
+        return count
+    except Exception as e:
+        print(f"Error getting manga count: {e}")
+        return 0
+
+def get_panel_count(manga_id):
+    """Get the count of panels for a manga"""
+    try:
+        result = supabase.table("panels").select("id", count="exact").eq("manga_id", manga_id).execute()
+        count = result.count
+        print(f"Manga {manga_id} has {count} panels")
+        return count
+    except Exception as e:
+        print(f"Error getting panel count: {e}")
+        return 0
+
+def get_user_mangas(user_id, limit=10):
+    """Get the user's mangas with their panels"""
+    try:
+        # Get the mangas
+        manga_result = supabase.table("mangas").select("*").eq("user_id", user_id).order("created_at", desc=True).limit(limit).execute()
+        
+        mangas = []
+        for manga in manga_result.data:
+            # Get panels for this manga
+            panels_result = supabase.table("panels").select("*").eq("manga_id", manga["id"]).order("panel_number").execute()
+            
+            # Add panels to manga
+            manga_with_panels = {
+                **manga,
+                "panels": panels_result.data
+            }
+            mangas.append(manga_with_panels)
+            
+        print(f"Retrieved {len(mangas)} mangas for user {user_id}")
+        return mangas
+    except Exception as e:
+        print(f"Error getting user mangas: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+def get_manga_by_id(manga_id):
+    """Get a specific manga with its panels"""
+    try:
+        # Get the manga
+        manga_result = supabase.table("mangas").select("*").eq("id", manga_id).execute()
+        
+        if not manga_result.data:
+            print(f"Manga {manga_id} not found")
+            return None
+            
+        manga = manga_result.data[0]
+        
+        # Get panels for this manga
+        panels_result = supabase.table("panels").select("*").eq("manga_id", manga_id).order("panel_number").execute()
+        
+        # Add panels to manga
+        manga_with_panels = {
+            **manga,
+            "panels": panels_result.data
+        }
+        
+        print(f"Retrieved manga {manga_id} with {len(panels_result.data)} panels")
+        return manga_with_panels
+    except Exception as e:
+        print(f"Error getting manga: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+# Update your route handlers to use these functions
+
+# Add this code to your app.py file
+# Modify the save_manga route to provide better debugging
+
+@app.route('/save_manga', methods=['POST'])
+def save_manga():
+    try:
+        if 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+        
+        data = request.json
+        print("Received data keys:", data.keys())
+        
+        # Check for manga_panels or panels key
+        manga_panels = data.get('manga_panels')
+        if not manga_panels:
+            # Try the 'panels' key as a fallback
+            manga_panels = data.get('panels')
+            
+        if not manga_panels:
+            print("No manga panels data found in request")
+            print("Request data:", data)
+            return jsonify({'error': 'No manga panels provided'}), 400
+        
+        print(f"Processing {len(manga_panels)} manga panels")
+        
+        user_id = session['user']['id']
+        print(f"Creating new manga for user {user_id}")
+        
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Create manga record
+        try:
+            manga_insert = supabase_client.table('mangas').insert({
+                'user_id': user_id,
+                'created_at': datetime.now().isoformat()
+            }).execute()
+            
+            if not manga_insert.data:
+                return jsonify({'error': 'Failed to create manga record'}), 500
+                
+            manga_id = manga_insert.data[0]['id']
+            print(f"Created manga with ID: {manga_id}")
+        except Exception as e:
+            print(f"Error creating manga: {e}")
+            return jsonify({'error': f'Failed to create manga: {str(e)}'}), 500
+        
+        # Process each panel
+        panels_data = []
+        for panel in manga_panels:
+            panel_number = panel.get('panel_number', 0)
+            image_url = panel.get('image_url')
+            dialogue = panel.get('dialogue', '')
+            
+            print(f"Processing panel {panel_number}")
+            
+            if not image_url:
+                print(f"Skipping panel {panel_number} due to missing image URL")
+                continue
+                
+            try:
+                # Download the image
+                response = requests.get(image_url)
+                if response.status_code != 200:
+                    print(f"Error downloading image for panel {panel_number}: Status {response.status_code}")
+                    continue
+                    
+                # Generate a file path for the panel
+                file_path = f"{user_id}/manga/{manga_id}/panel_{panel_number}.png"
+                
+                print(f"Uploading to path: {file_path}")
+                
+                # Make sure the directory exists in the storage
+                try:
+                    # Upload to Supabase storage
+                    supabase_client.storage.from_('manga-panels').upload(
+                        path=file_path,
+                        file=response.content,
+                        file_options={"content-type": "image/png"}
+                    )
+                    print(f"Successfully uploaded panel {panel_number}")
+                except Exception as upload_error:
+                    print(f"Upload error for panel {panel_number}: {upload_error}")
+                    # If error is that the file already exists, we can continue
+                    if "The resource already exists" not in str(upload_error):
+                        continue
+                
+                # Get the URL for the panel image
+                try:
+                    signed_url = supabase_client.storage.from_('manga-panels').create_signed_url(
+                        path=file_path,
+                        expires_in=31536000  # 1 year in seconds
+                    )
+                    
+                    storage_url = signed_url['signedURL'] if isinstance(signed_url, dict) and 'signedURL' in signed_url else None
+                    
+                    if not storage_url:
+                        print(f"Failed to get storage URL for panel {panel_number}")
+                        continue
+                    
+                    print(f"Got storage URL for panel {panel_number}")
+                except Exception as url_error:
+                    print(f"Error getting signed URL for panel {panel_number}: {url_error}")
+                    continue
+                
+                # Create panel record
+                panel_data = {
+                    'manga_id': manga_id,
+                    'panel_number': panel_number,
+                    'image_url': storage_url,
+                    'dialogue': dialogue
+                }
+                
+                panels_data.append(panel_data)
+                print(f"Added panel {panel_number} to panels_data")
+                
+            except Exception as e:
+                print(f"Error processing panel {panel_number}: {e}")
+                import traceback
+                traceback.print_exc()
+        
+        # Insert all panels
+        if panels_data:
+            try:
+                print(f"Inserting {len(panels_data)} panels into database")
+                panels_insert = supabase_client.table('panels').insert(panels_data).execute()
+                print(f"Inserted {len(panels_insert.data)} panels")
+            except Exception as e:
+                print(f"Error inserting panels: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'error': f'Failed to save panels: {str(e)}'}), 500
+        else:
+            print("No panels data to insert")
+        
+        return jsonify({
+            'success': True,
+            'manga_id': manga_id,
+            'panel_count': len(panels_data)
+        })
+        
+    except Exception as e:
+        print(f"Error in save_manga: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to save manga: {str(e)}'}), 500
+       
+@app.route('/get_mangas', methods=['GET'])
+def get_mangas():
+    """Get the user's mangas"""
+    try:
+        if 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+            
+        user_id = session['user']['id']
+        
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Get user's mangas
+        mangas = get_user_mangas(user_id)
+        
+        return jsonify({
+            'success': True,
+            'mangas': mangas,
+            'count': len(mangas)
+        })
+        
+    except Exception as e:
+        print(f"Error fetching mangas: {e}")
+        return jsonify({'error': f'Failed to fetch mangas: {str(e)}'}), 500
+
+@app.route('/get_manga/<manga_id>', methods=['GET'])
+def get_manga(manga_id):
+    """Get a specific manga"""
+    try:
+        if 'user' not in session:
+            return jsonify({'error': 'Not logged in'}), 401
+            
+        user_id = session['user']['id']
+        
+        # Get authenticated client
+        supabase_client = get_authenticated_supabase(user_id)
+        
+        # Get the manga
+        manga = get_manga_by_id(manga_id)
+        
+        if not manga:
+            return jsonify({'error': 'Manga not found'}), 404
+            
+        # Check if the manga belongs to the user
+        if manga['user_id'] != user_id:
+            return jsonify({'error': 'Unauthorized access to manga'}), 403
+            
+        return jsonify({
+            'success': True,
+            'manga': manga
+        })
+        
+    except Exception as e:
+        print(f"Error fetching manga: {e}")
+        return jsonify({'error': f'Failed to fetch manga: {str(e)}'}), 500
+
+# Modify your generate_manga route to optionally save manga directly
 @app.route('/generate_manga', methods=['POST'])
 def generate_manga():
     try:
@@ -328,8 +768,9 @@ def generate_manga():
             print("Error: No script provided in request data")
             return jsonify({'error': 'No script provided'}), 400
         
-        # Request parameter to control whether to generate images or just panels
+        # Request parameters
         generate_images = data.get('generate_images', False)
+        save_to_database = data.get('save_to_database', False)
         
         user_id = session['user']['id']
         print(f"Processing for user ID: {user_id}")
@@ -424,6 +865,37 @@ def generate_manga():
                     'error': 'Image generation failed'
                 })
             
+            # If save_to_database is True, save the manga and panels
+            if save_to_database and manga_panels:
+                try:
+                    print("Saving manga to database...")
+                    # Create a new manga entry
+                    manga = create_manga(user_id)
+                    
+                    if manga:
+                        # Save panels
+                        saved_panels = create_panels(manga['id'], manga_panels)
+                        
+                        # Get counts for logging
+                        manga_count = get_manga_count(user_id)
+                        panel_count = get_panel_count(manga['id'])
+                        
+                        print(f"Saved manga with ID: {manga['id']}")
+                        print(f"Total mangas for user: {manga_count}")
+                        print(f"Total panels for this manga: {panel_count}")
+                        
+                        return jsonify({
+                            'success': True,
+                            'manga_panels': manga_panels,
+                            'manga_id': manga['id'],
+                            'saved': True,
+                            'manga_count': manga_count,
+                            'panel_count': panel_count
+                        })
+                except Exception as e:
+                    print(f"Error saving manga to database: {e}")
+                    # Continue without saving - just return the generated panels
+            
             return jsonify({
                 'success': True,
                 'manga_panels': manga_panels  # Combined data with images and dialogues
@@ -440,7 +912,10 @@ def generate_manga():
         print(f"Unexpected error in generate_manga: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': f'Failed to generate manga: {str(e)}'}), 500    
+        return jsonify({'error': f'Failed to generate manga: {str(e)}'}), 500
+
+
+# Modify your generate_manga route to optionally save manga directly
 
 def enhance_panels_with_character_info(panels, character_descriptions):
     """
@@ -723,104 +1198,6 @@ def auth():
         return jsonify({'error': str(e)}), 500
 
 
-def save_image_to_supabase(image_url, user_id, is_main=False, character_id=None):
-    try:
-        # Get authenticated Supabase client
-        supabase_client = get_authenticated_supabase(user_id)
-        
-        # Download the image or read from local file
-        if isinstance(image_url, str):
-            if image_url.startswith('http'):
-                response = requests.get(image_url)
-                if response.status_code != 200:
-                    print(f"Failed to download image: Status code {response.status_code}")
-                    return None
-                image_bytes = response.content
-            else:
-                # If it's a local file path
-                with open(image_url, 'rb') as f:
-                    image_bytes = f.read()
-        else:
-            # If image_url is already file-like
-            image_bytes = image_url.read()
-        
-        # Define the file path in Supabase storage
-        if is_main:
-            file_path = f"{user_id}/main.png"
-        else:
-            file_path = f"{user_id}/people/{character_id}.png"
-        
-        # Print debug info
-        print(f"Uploading to path: {file_path}")
-        print(f"Image bytes type: {type(image_bytes)}")
-        print(f"Image bytes length: {len(image_bytes) if isinstance(image_bytes, bytes) else 'not bytes'}")
-        
-        try:
-            # First try to update if the file exists
-            print(f"Trying to update existing file...")
-            result = supabase_client.storage.from_('character-images').update(
-                path=file_path,
-                file=image_bytes,
-                file_options={"content-type": "image/png"}
-            )
-            print(f"Update result: {result}")
-        except Exception as e:
-            print(f"Update failed (likely file doesn't exist yet): {e}")
-            # If update fails, try to upload as new file
-            try:
-                print(f"Trying to upload new file...")
-                result = supabase_client.storage.from_('character-images').upload(
-                    path=file_path,
-                    file=image_bytes,
-                    file_options={"content-type": "image/png"}
-                )
-                print(f"Upload result: {result}")
-            except Exception as upload_error:
-                if "The resource already exists" in str(upload_error) or "Duplicate" in str(upload_error):
-                    # If we get here, both update and upload failed
-                    # Let's try to remove and then upload
-                    print(f"Both update and upload failed. Removing existing file and then uploading...")
-                    try:
-                        supabase_client.storage.from_('character-images').remove([file_path])
-                        result = supabase_client.storage.from_('character-images').upload(
-                            path=file_path,
-                            file=image_bytes,
-                            file_options={"content-type": "image/png"}
-                        )
-                        print(f"Remove and re-upload result: {result}")
-                    except Exception as final_error:
-                        print(f"Final attempt failed: {final_error}")
-                        raise final_error
-                else:
-                    raise upload_error
-        
-        # Get the authenticated URL - using the signed URL method for private buckets
-        try:
-            # First, try to get a signed URL with a long expiration (1 week)
-            signed_url = supabase_client.storage.from_('character-images').create_signed_url(
-                path=file_path,
-                expires_in=604800  # 7 days in seconds
-            )
-            print(f"Generated signed URL: {signed_url}")
-            
-            if isinstance(signed_url, dict) and 'signedURL' in signed_url:
-                return signed_url['signedURL']
-            else:
-                # If signedURL not in expected format, create a placeholder URL for now
-                # This URL will need to be refreshed on the client side
-                return f"{SUPABASE_URL}/storage/v1/object/sign/character-images/{file_path}?token=sessionToken"
-                
-        except Exception as url_error:
-            print(f"Error creating signed URL: {url_error}")
-            # Fallback to creating a placeholder URL structure
-            return f"{SUPABASE_URL}/storage/v1/object/sign/character-images/{file_path}?token=sessionToken"
-        
-    except Exception as e:
-        print(f"Error saving image to Supabase: {e}")
-        import traceback
-        traceback.print_exc()
-        return None
-
 
 
 @app.route('/get-signed-image-url', methods=['POST'])
@@ -830,6 +1207,7 @@ def get_signed_image_url():
     
     data = request.json
     path = data.get('path')
+    bucket = data.get('bucket', 'character-images')  # Default to character-images bucket
     
     if not path:
         return jsonify({'error': 'No path provided'}), 400
@@ -840,7 +1218,7 @@ def get_signed_image_url():
         supabase_client = get_authenticated_supabase(user_id)
         
         # Create a new signed URL with a 15-minute expiration
-        signed_url = supabase_client.storage.from_('character-images').create_signed_url(
+        signed_url = supabase_client.storage.from_(bucket).create_signed_url(
             path=path,
             expires_in=900  # 15 minutes in seconds
         )
@@ -856,7 +1234,6 @@ def get_signed_image_url():
         traceback.print_exc()
         return jsonify({'error': f'Failed to generate signed URL: {str(e)}'}), 500
     
-
 
 # @app.route('/test_storage_upload', methods=['GET'])
 # def test_storage_upload():
@@ -1242,6 +1619,7 @@ def process_image_with_gpt4o(image):
         
     except Exception as e:
         return None, f"Error processing image: {str(e)}"
+
 
 def generate_manga_panels_with_dalle(panels, dialogues):
     """Generate manga panel images using DALL-E with improved error handling and rate limits"""
